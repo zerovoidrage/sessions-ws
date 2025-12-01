@@ -316,7 +316,7 @@ function CallRoomContent({
         camEnabled,
         screenShareEnabled,
         cameraPub: cameraPub ? {
-          trackId: cameraPub.track?.trackId,
+          trackSid: cameraPub.trackSid,
           isMuted: cameraPub.isMuted,
           hasTrack: !!cameraPub.track,
         } : null,

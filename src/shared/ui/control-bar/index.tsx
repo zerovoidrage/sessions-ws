@@ -41,16 +41,11 @@ export function ControlBar({
     <div className={cn('flex items-center justify-center gap-3', className)}>
       {onMicrophoneToggle && (
         <Button
-          variant="ghost"
+          variant={microphoneEnabled ? "primary" : "secondary"}
           size="md"
           onClick={() => onMicrophoneToggle(!microphoneEnabled)}
-          className="flex items-center justify-center text-white-700 hover:text-white-900"
         >
-          {microphoneEnabled ? (
-            <Microphone size={28} weight="regular" />
-          ) : (
-            <MicrophoneSlash size={28} weight="regular" />
-          )}
+          {microphoneEnabled ? "muted" : "unmuted"}
         </Button>
       )}
 
@@ -62,9 +57,9 @@ export function ControlBar({
           className="flex items-center justify-center text-white-700 hover:text-white-900"
         >
           {cameraEnabled ? (
-            <VideoCamera size={28} weight="regular" />
+            <VideoCamera size={24} weight="regular" />
           ) : (
-            <VideoCameraSlash size={28} weight="regular" />
+            <VideoCameraSlash size={24} weight="regular" />
           )}
         </Button>
       )}
@@ -77,9 +72,9 @@ export function ControlBar({
           className="flex items-center justify-center text-white-700 hover:text-white-900"
         >
           {screenShareEnabled ? (
-            <Stop size={28} weight="regular" />
+            <Stop size={24} weight="regular" />
           ) : (
-            <MonitorArrowUp size={28} weight="regular" />
+            <MonitorArrowUp size={24} weight="regular" />
           )}
         </Button>
       )}
@@ -91,7 +86,7 @@ export function ControlBar({
           onClick={onChatToggle}
           className="flex items-center justify-center text-white-700 hover:text-white-900"
         >
-          <ChatCircle size={28} weight="regular" />
+          <ChatCircle size={24} weight="regular" />
         </Button>
       )}
 
@@ -102,7 +97,7 @@ export function ControlBar({
           onClick={onLeave}
           className="flex items-center justify-center text-white-700 hover:text-white-900"
         >
-          <Power size={28} weight="regular" />
+          <Power size={24} weight="regular" />
         </Button>
       )}
     </div>

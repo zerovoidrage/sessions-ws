@@ -1,120 +1,74 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Track, Participant, RemoteParticipant, LocalParticipant, RoomEvent } from 'livekit-client'
+import { Track, Participant, RemoteParticipant, LocalParticipant } from 'livekit-client'
 import { VideoTile } from '../video-tile'
 import { cn } from '@/lib/utils'
 
 export interface VideoGridProps {
-  participants: (LocalParticipant | RemoteParticipant)[]
-  localParticipant?: LocalParticipant
-  room?: any // Room для подписки на события
+  localParticipant: LocalParticipant | null
+  remoteParticipants: RemoteParticipant[]
   className?: string
 }
 
-export function VideoGrid({ participants, localParticipant, room, className }: VideoGridProps) {
+export function VideoGrid({ localParticipant, remoteParticipants, className }: VideoGridProps) {
   const [, forceUpdate] = useState(0)
 
-  // Подписываемся на изменения треков, чтобы обновлять UI
+  // Подписываемся на изменения треков у всех участников для обновления UI
   useEffect(() => {
-    if (!room) return
+    const allParticipants = [
+      ...(localParticipant ? [localParticipant] : []),
+      ...remoteParticipants,
+    ]
 
-    const handleTrackChanged = (track: any, publication: any, participant: any) => {
-      console.log('[VideoGrid] Track changed', {
-        trackId: track?.trackId,
-        source: publication?.source,
-        participant: participant?.identity,
-        isMuted: publication?.isMuted,
-      })
+    if (allParticipants.length === 0) return
+
+    const handleTrackChanged = () => {
       // Принудительно обновляем компонент при изменении треков
       forceUpdate((prev) => prev + 1)
     }
 
-    const handleTrackPublished = (publication: any, participant: any) => {
-      console.log('[VideoGrid] Track published', {
-        source: publication?.source,
-        participant: participant?.identity,
-        hasTrack: !!publication?.track,
+    const listeners: Array<() => void> = []
+
+    // Подписываемся на события треков у каждого участника
+    allParticipants.forEach((participant) => {
+      const handleTrackPublished = () => handleTrackChanged()
+      const handleTrackUnpublished = () => handleTrackChanged()
+      const handleTrackMuted = () => handleTrackChanged()
+      const handleTrackUnmuted = () => handleTrackChanged()
+
+      participant.on('trackPublished', handleTrackPublished)
+      participant.on('trackUnpublished', handleTrackUnpublished)
+      participant.on('trackMuted', handleTrackMuted)
+      participant.on('trackUnmuted', handleTrackUnmuted)
+
+      listeners.push(() => {
+        participant.off('trackPublished', handleTrackPublished)
+        participant.off('trackUnpublished', handleTrackUnpublished)
+        participant.off('trackMuted', handleTrackMuted)
+        participant.off('trackUnmuted', handleTrackUnmuted)
       })
-      forceUpdate((prev) => prev + 1)
-    }
-
-    const handleTrackUnpublished = (publication: any, participant: any) => {
-      console.log('[VideoGrid] Track unpublished', {
-        source: publication?.source,
-        participant: participant?.identity,
-      })
-      forceUpdate((prev) => prev + 1)
-    }
-
-    room.on(RoomEvent.TrackPublished, handleTrackPublished)
-    room.on(RoomEvent.TrackUnpublished, handleTrackUnpublished)
-    room.on(RoomEvent.TrackSubscribed, handleTrackChanged)
-    room.on(RoomEvent.TrackUnsubscribed, handleTrackChanged)
-    room.on(RoomEvent.TrackMuted, handleTrackChanged)
-    room.on(RoomEvent.TrackUnmuted, handleTrackChanged)
-
-    // Также подписываемся на события участника
-    if (localParticipant) {
-      localParticipant.on('trackPublished', handleTrackPublished)
-      localParticipant.on('trackUnpublished', handleTrackUnpublished)
-      localParticipant.on('trackMuted', handleTrackChanged)
-      localParticipant.on('trackUnmuted', handleTrackChanged)
-    }
+    })
 
     return () => {
-      room.off(RoomEvent.TrackPublished, handleTrackPublished)
-      room.off(RoomEvent.TrackUnpublished, handleTrackUnpublished)
-      room.off(RoomEvent.TrackSubscribed, handleTrackChanged)
-      room.off(RoomEvent.TrackUnsubscribed, handleTrackChanged)
-      room.off(RoomEvent.TrackMuted, handleTrackChanged)
-      room.off(RoomEvent.TrackUnmuted, handleTrackChanged)
-      
-      if (localParticipant) {
-        localParticipant.off('trackPublished', handleTrackPublished)
-        localParticipant.off('trackUnpublished', handleTrackUnpublished)
-        localParticipant.off('trackMuted', handleTrackChanged)
-        localParticipant.off('trackUnmuted', handleTrackChanged)
-      }
+      listeners.forEach((cleanup) => cleanup())
     }
-  }, [room, localParticipant])
+  }, [localParticipant, remoteParticipants])
 
-  const allParticipants = localParticipant 
-    ? [localParticipant, ...participants.filter(p => p.identity !== localParticipant.identity)]
-    : participants
+  // Собираем массив всех участников
+  const allParticipants = [
+    ...(localParticipant ? [localParticipant] : []),
+    ...remoteParticipants,
+  ]
 
   const getVideoTrack = (participant: Participant) => {
     // Ищем активный видео-трек (не muted и с track)
     const allVideoPubs = Array.from(participant.videoTrackPublications.values())
     
     const videoPub = allVideoPubs.find((pub) => {
-      // Проверяем, что трек существует, не muted, и это не screen share
-      const isValid = pub.track && 
-                      !pub.isMuted && 
-                      pub.source === Track.Source.Camera
-      
-      if (pub.track && pub.source === Track.Source.Camera) {
-        console.log('[VideoGrid] Camera track found', {
-          participant: participant.identity,
-          trackId: pub.track.trackId,
-          isMuted: pub.isMuted,
-          isValid,
-        })
-      }
-      
-      return isValid
+      // Проверяем, что трек существует, не muted, и это камера (не screen share)
+      return pub.track && !pub.isMuted && pub.source === Track.Source.Camera
     })
-    
-    if (!videoPub && allVideoPubs.length > 0) {
-      console.log('[VideoGrid] No valid camera track found', {
-        participant: participant.identity,
-        availablePubs: allVideoPubs.map(p => ({
-          source: p.source,
-          isMuted: p.isMuted,
-          hasTrack: !!p.track,
-        })),
-      })
-    }
     
     return videoPub?.track
   }

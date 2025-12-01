@@ -188,7 +188,7 @@ function CallRoomContent({
       if (room.state === 'connected') {
         try {
           // Включаем только микрофон, камеру не включаем
-          const micPub = localParticipant.getTrackPublication('microphone')
+          const micPub = localParticipant.getTrackPublication(Track.Source.Microphone)
           const isMicEnabled = micPub && !micPub.isMuted
 
           if (!isMicEnabled) {

@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import localFont from 'next/font/local'
 import './globals.css'
+import { Providers } from '@/components/providers/Providers'
 
 const suisseIntl = localFont({
   src: [
@@ -47,7 +48,9 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className={suisseIntl.variable}>
-      <body className="font-suisse-intl">{children}</body>
+      <body className="font-suisse-intl">
+        <Providers>{children}</Providers>
+      </body>
     </html>
   )
 }

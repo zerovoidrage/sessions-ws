@@ -34,10 +34,9 @@ export function VideoTile({
 
     console.log('[VideoTile] Attaching track', { 
       participantName, 
-      trackId: track.trackId,
+      trackSid: track.sid,
       kind: track.kind,
       isMuted: track.isMuted,
-      isSubscribed: track.isSubscribed,
       hasMediaStreamTrack: !!track.mediaStreamTrack,
     })
 
@@ -45,14 +44,7 @@ export function VideoTile({
     if (track.isMuted) {
       console.warn('[VideoTile] Track is muted', {
         participantName,
-        trackId: track.trackId,
-      })
-    }
-
-    if (!track.isSubscribed) {
-      console.warn('[VideoTile] Track is not subscribed', {
-        participantName,
-        trackId: track.trackId,
+        trackSid: track.sid,
       })
     }
 
@@ -73,11 +65,11 @@ export function VideoTile({
 
     // Подписываемся на изменения трека
     const handleTrackMuted = () => {
-      console.log('[VideoTile] Track muted', { participantName, trackId: track.trackId })
+      console.log('[VideoTile] Track muted', { participantName, trackSid: track.sid })
       // При muted не очищаем элемент, просто останавливаем воспроизведение
     }
     const handleTrackUnmuted = () => {
-      console.log('[VideoTile] Track unmuted', { participantName, trackId: track.trackId })
+      console.log('[VideoTile] Track unmuted', { participantName, trackSid: track.sid })
       // При unmuted пытаемся снова воспроизвести
       videoElement.play().catch((err) => {
         console.error('[VideoTile] Error playing video after unmute:', err)
@@ -88,7 +80,7 @@ export function VideoTile({
     track.on('unmuted', handleTrackUnmuted)
 
     return () => {
-      console.log('[VideoTile] Detaching track', { participantName, trackId: track.trackId })
+      console.log('[VideoTile] Detaching track', { participantName, trackSid: track.sid })
       // Отключаем трек от элемента при размонтировании
       try {
         track.detach(videoElement)

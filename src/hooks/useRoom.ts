@@ -1,129 +1,181 @@
 'use client'
 
 import { useEffect, useState, useRef } from 'react'
-import { Room, RoomEvent, RemoteParticipant, LocalParticipant } from 'livekit-client'
+import { Room, RoomEvent, ConnectionState } from 'livekit-client'
 
 export function useRoom(token: string, serverUrl: string) {
   const [room, setRoom] = useState<Room | null>(null)
   const [isConnected, setIsConnected] = useState(false)
+  const [connectionState, setConnectionState] = useState<ConnectionState>(ConnectionState.Disconnected)
   const [error, setError] = useState<Error | null>(null)
   const roomRef = useRef<Room | null>(null)
+  const lastTokenRef = useRef<string | null>(null)
+  const lastUrlRef = useRef<string | null>(null)
+
+  // Простая хеш-функция для логирования токена (безопасно)
+  const hashToken = (t: string) => {
+    let hash = 0
+    for (let i = 0; i < Math.min(t.length, 20); i++) {
+      const char = t.charCodeAt(i)
+      hash = ((hash << 5) - hash) + char
+      hash = hash & hash
+    }
+    return Math.abs(hash).toString(36)
+  }
 
   useEffect(() => {
-    if (!token || !serverUrl) return
-
-    // Предотвращаем множественные подключения
-    if (roomRef.current) {
+    if (!token || !serverUrl) {
+      setRoom(null)
+      setIsConnected(false)
+      setConnectionState(ConnectionState.Disconnected)
       return
     }
 
+    // Если уже есть room с тем же token/serverUrl — ничего не делаем
+    if (
+      roomRef.current &&
+      lastTokenRef.current === token &&
+      lastUrlRef.current === serverUrl
+    ) {
+      return
+    }
+
+    // Если room был, но токен/URL изменились — аккуратно отключаем
+    if (roomRef.current) {
+      const oldRoom = roomRef.current
+      console.info('[useRoom] Token/URL changed, disconnecting old room', {
+        oldTokenHash: lastTokenRef.current ? hashToken(lastTokenRef.current) : null,
+        newTokenHash: hashToken(token),
+        oldUrl: lastUrlRef.current,
+        newUrl: serverUrl,
+      })
+      
+      try {
+        oldRoom.disconnect()
+      } catch (e) {
+        console.warn('[useRoom] Error disconnecting old room on token/url change', e)
+      }
+      
+      roomRef.current = null
+      setRoom(null)
+      setIsConnected(false)
+      setConnectionState(ConnectionState.Disconnected)
+    }
+
+    // Создаем новый Room инстанс
     const newRoom = new Room()
     roomRef.current = newRoom
+    setRoom(newRoom)
+    lastTokenRef.current = token
+    lastUrlRef.current = serverUrl
 
-    const handleConnected = () => {
-      console.log('[useRoom] Room connected', { state: newRoom.state })
+    let cancelled = false
+
+    // Функция подключения
+    async function connect() {
+      if (cancelled) return
+
+      try {
+        setConnectionState(newRoom.state)
+        console.info('[useRoom] Connecting to room...', {
+          serverUrl,
+          tokenHash: hashToken(token),
+          currentState: newRoom.state,
+        })
+
+        await newRoom.connect(serverUrl, token)
+        
+        if (cancelled) return
+        
+        const finalState = newRoom.state
+        setConnectionState(finalState)
+        
+        if (finalState === 'connected') {
+          setIsConnected(true)
+          setError(null)
+          console.info('[useRoom] Room connected successfully', { state: finalState })
+        } else {
+          setIsConnected(false)
+          console.warn('[useRoom] Room connect completed but state is not connected', { state: finalState })
+        }
+      } catch (e) {
+        if (cancelled) return
+        
+        console.error('[useRoom] Connect error', e)
+        setError(e as Error)
+        setIsConnected(false)
+        setConnectionState(newRoom.state)
+      }
+    }
+
+    // Обработчик изменения состояния комнаты через room.state
+    // LiveKit не имеет RoomEvent.RoomStateChanged, используем прямое чтение room.state
+    // и события Reconnecting/Reconnected/Disconnected
+
+    // Обработчики событий переподключения
+    const handleReconnecting = () => {
+      if (cancelled) return
+      console.warn('[useRoom] Room reconnecting...', { tokenHash: hashToken(token) })
+      setConnectionState(ConnectionState.Reconnecting)
+      setIsConnected(false)
+      // ВАЖНО: НЕ вызываем room.disconnect() здесь!
+    }
+
+    const handleReconnected = () => {
+      if (cancelled) return
+      console.info('[useRoom] Room reconnected', { tokenHash: hashToken(token) })
+      setConnectionState(ConnectionState.Connected)
       setIsConnected(true)
       setError(null)
+      // ВАЖНО: НЕ вызываем room.disconnect() здесь!
     }
 
     const handleDisconnected = () => {
-      console.log('[useRoom] Room disconnected')
+      if (cancelled) return
+      console.warn('[useRoom] Room disconnected', { tokenHash: hashToken(token) })
+      setConnectionState(ConnectionState.Disconnected)
       setIsConnected(false)
-    }
-
-    const handleError = (err: Error) => {
-      console.error('[useRoom] Room error:', err)
-      setError(err)
-      setIsConnected(false)
+      // ВАЖНО: НЕ вызываем room.disconnect() здесь!
     }
 
     // Подписываемся на события ДО подключения
-    newRoom.on(RoomEvent.Connected, handleConnected)
+    newRoom.on(RoomEvent.Reconnecting, handleReconnecting)
+    newRoom.on(RoomEvent.Reconnected, handleReconnected)
     newRoom.on(RoomEvent.Disconnected, handleDisconnected)
-    newRoom.on(RoomEvent.ConnectionQualityChanged, () => {})
-    newRoom.on(RoomEvent.Error, handleError)
 
-    setRoom(newRoom)
-
-    console.log('[useRoom] Connecting to room...', { serverUrl, tokenLength: token.length })
-    
-    // Подключаемся к комнате
-    newRoom.connect(serverUrl, token)
-      .then(() => {
-        console.log('[useRoom] Connect promise resolved', { state: newRoom.state })
-        // Проверяем состояние после подключения
-        if (newRoom.state === 'connected') {
-          handleConnected()
-        }
-      })
-      .catch((err) => {
-        console.error('[useRoom] Failed to connect to room:', err)
-        setError(err)
-      })
+    // Запускаем подключение
+    connect()
 
     return () => {
-      // В cleanup только отписываемся от событий, НЕ отключаем комнату
-      // Отключение происходит только при явном вызове disconnect() через handleLeave
-      const currentRoom = roomRef.current
-      if (!currentRoom || currentRoom !== newRoom) return
-
-      currentRoom.off(RoomEvent.Connected, handleConnected)
-      currentRoom.off(RoomEvent.Disconnected, handleDisconnected)
-      currentRoom.off(RoomEvent.Error, handleError)
+      cancelled = true
       
-      // Если token или serverUrl изменились, отключаем старую комнату
-      if (currentRoom.state === 'connected' || currentRoom.state === 'connecting') {
-        console.log('[useRoom] Token/serverUrl changed, disconnecting old room')
-        currentRoom.disconnect()
-        roomRef.current = null
+      console.info('[useRoom] Cleanup, disconnecting room', {
+        tokenHash: hashToken(token),
+        roomState: newRoom.state,
+      })
+
+      // Отписываемся от событий
+      newRoom.off(RoomEvent.Reconnecting, handleReconnecting)
+      newRoom.off(RoomEvent.Reconnected, handleReconnected)
+      newRoom.off(RoomEvent.Disconnected, handleDisconnected)
+
+      // ВАЖНО: disconnect здесь вызываем только когда компонент реально уходит
+      // или когда token/serverUrl поменялись и мы уже создали новый Room
+      try {
+        newRoom.disconnect()
+      } catch (e) {
+        console.warn('[useRoom] Error disconnecting room on cleanup', e)
+      } finally {
+        if (roomRef.current === newRoom) {
+          roomRef.current = null
+        }
+        setIsConnected(false)
+        setRoom((current) => (current === newRoom ? null : current))
+        setConnectionState(ConnectionState.Disconnected)
       }
     }
   }, [token, serverUrl])
 
-  // Cleanup при размонтировании компонента
-  // НЕ отключаем комнату автоматически - это вызывает проблемы в Strict Mode
-  // Комната отключается только при явном вызове disconnect() через handleLeave
-
-  return { room, isConnected, error }
-}
-
-export function useParticipants(room: Room | null) {
-  const [participants, setParticipants] = useState<(LocalParticipant | RemoteParticipant)[]>([])
-  const [localParticipant, setLocalParticipant] = useState<LocalParticipant | null>(null)
-
-  useEffect(() => {
-    if (!room) {
-      setParticipants([])
-      setLocalParticipant(null)
-      return
-    }
-
-    const updateParticipants = () => {
-      const remote = Array.from(room.remoteParticipants.values())
-      const local = room.localParticipant
-      setParticipants(remote)
-      setLocalParticipant(local)
-    }
-
-    updateParticipants()
-
-    const handleParticipantConnected = () => {
-      updateParticipants()
-    }
-
-    const handleParticipantDisconnected = () => {
-      updateParticipants()
-    }
-
-    room.on(RoomEvent.ParticipantConnected, handleParticipantConnected)
-    room.on(RoomEvent.ParticipantDisconnected, handleParticipantDisconnected)
-
-    return () => {
-      room.off(RoomEvent.ParticipantConnected, handleParticipantConnected)
-      room.off(RoomEvent.ParticipantDisconnected, handleParticipantDisconnected)
-    }
-  }, [room])
-
-  return { participants, localParticipant }
+  return { room, isConnected, connectionState, error }
 }
 

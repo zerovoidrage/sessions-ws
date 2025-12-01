@@ -1,7 +1,7 @@
 // src/types/transcript.ts
 export interface TranscriptMessage {
   id: string // Уникальный ID бабла в UI
-  roomSlug: string
+  sessionSlug: string
   speakerId: string
   speakerName: string
   text: string

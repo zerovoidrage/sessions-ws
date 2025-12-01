@@ -20,15 +20,13 @@
     display: none; /* Chrome, Safari and Opera */
   }
 
-  @keyframes slideUpFadeIn {
-    0% {
-      opacity: 0;
-      transform: translateY(20px) scale(0.95);
-    }
-    100% {
-      opacity: 1;
-      transform: translateY(0) scale(1);
-    }
+  /* Input placeholder styles - более специфичный селектор */
+  input[type="text"]::placeholder,
+  input[type="email"]::placeholder,
+  input[type="password"]::placeholder,
+  input::placeholder {
+    color: #999999 !important; /* white-700 */
+    opacity: 1 !important;
   }
 
   .animate-slide-up-fade-in {
@@ -37,3 +35,13 @@
   }
 }
 
+@keyframes slideUpFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(20px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}

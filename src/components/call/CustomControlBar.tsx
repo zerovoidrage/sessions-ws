@@ -14,7 +14,7 @@ import {
   Camera, 
   CameraSlash, 
   Presentation, 
-  PresentationSlash,
+  Stop,
   ChatCircle,
   SignOut
 } from '@phosphor-icons/react'
@@ -55,15 +55,17 @@ export function CustomControlBar({ className = '' }: CustomControlBarProps) {
 
   const canPublishSource = (source: Track.Source) => {
     if (!permissions) return false
-    const sourceMap: Record<Track.Source, number> = {
+    const sourceMap: Partial<Record<Track.Source, number>> = {
       [Track.Source.Camera]: 1,
       [Track.Source.Microphone]: 2,
       [Track.Source.ScreenShare]: 3,
     }
+    const sourceValue = sourceMap[source]
+    if (sourceValue === undefined) return false
     return (
       permissions.canPublish &&
       (permissions.canPublishSources.length === 0 ||
-        permissions.canPublishSources.includes(sourceMap[source]))
+        permissions.canPublishSources.includes(sourceValue))
     )
   }
 
@@ -108,7 +110,7 @@ export function CustomControlBar({ className = '' }: CustomControlBarProps) {
           className="flex items-center gap-2 px-4 py-2 text-white-900 hover:opacity-80 transition-opacity"
         >
           {screenShareEnabled ? (
-            <PresentationSlash size={20} weight="fill" />
+            <Stop size={20} weight="fill" />
           ) : (
             <Presentation size={20} weight="fill" />
           )}

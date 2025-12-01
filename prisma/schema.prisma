@@ -10,13 +10,217 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// Модель комнаты для звонков
-model CallRoom {
-  id             String   @id @default(cuid())
-  slug           String   @unique
-  createdByUserId String? // можно привязать к User, если есть модель User
-  createdAt      DateTime @default(now())
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  emailVerified DateTime?
+  name          String?
+  image         String? // Только для совместимости с NextAuth OAuth - не используется в приложении
+  displayName   String?
+  avatarUrl     String?
+  noAvatarColor String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  videoSessions VideoSession[] @relation("VideoSessionsCreated")
+  spaces        Space[]        @relation("SpacesOwned")
+  activeSpaceId String?
+  activeSpace   Space?         @relation("ActiveSpace", fields: [activeSpaceId], references: [id])
+
+  spaceMembers       SpaceMember[]
+  participants       Participant[]
+  transcriptionUsage TranscriptionUsage[]
+
+  // NextAuth relations
+  accounts Account[]
+  sessions Session[]
 }
 
+enum SpaceMode {
+  SESSIONS_ONLY
+  SESSIONS_AND_TASKS
+}
 
+enum SpaceRole {
+  OWNER
+  MEMBER
+}
 
+model Space {
+  id        String   @id @default(cuid())
+  name      String
+  ownerId   String
+  owner     User     @relation("SpacesOwned", fields: [ownerId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  mode SpaceMode @default(SESSIONS_ONLY)
+
+  videoSessions VideoSession[]
+  members       SpaceMember[]
+  activeUsers   User[]         @relation("ActiveSpace")
+}
+
+model SpaceMember {
+  id      String @id @default(cuid())
+  spaceId String
+  space   Space  @relation(fields: [spaceId], references: [id])
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  role      SpaceRole @default(OWNER)
+  createdAt DateTime  @default(now())
+
+  @@unique([spaceId, userId])
+  @@index([spaceId])
+  @@index([userId])
+}
+
+model VideoSession {
+  id              String        @id @default(cuid())
+  slug            String        @unique
+  title           String?
+  createdByUserId String?
+  createdBy       User?         @relation("VideoSessionsCreated", fields: [createdByUserId], references: [id])
+  status          SessionStatus @default(ACTIVE)
+  createdAt       DateTime      @default(now())
+  endedAt         DateTime?
+
+  spaceId String
+  space   Space  @relation(fields: [spaceId], references: [id])
+
+  participants       Participant[]
+  transcripts        TranscriptSegment[]
+  transcriptionUsage TranscriptionUsage[]
+
+  @@index([spaceId])
+  @@index([createdByUserId])
+}
+
+// NextAuth models
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+enum SessionStatus {
+  ACTIVE
+  ENDED
+}
+
+model Participant {
+  id             String       @id @default(cuid())
+  videoSessionId String
+  videoSession   VideoSession @relation(fields: [videoSessionId], references: [id])
+
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id])
+
+  identity String // LiveKit identity
+  name     String?
+  role     ParticipantRole @default(GUEST)
+  joinedAt DateTime        @default(now())
+  leftAt   DateTime?
+
+  transcripts        TranscriptSegment[]
+  transcriptionUsage TranscriptionUsage[]
+
+  @@unique([videoSessionId, identity])
+  @@index([videoSessionId])
+}
+
+enum ParticipantRole {
+  HOST
+  GUEST
+}
+
+model TranscriptSegment {
+  id             String       @id @default(cuid())
+  videoSessionId String
+  videoSession   VideoSession @relation(fields: [videoSessionId], references: [id])
+
+  participantId String?
+  participant   Participant? @relation(fields: [participantId], references: [id])
+
+  utteranceId String // Gladia data.id
+  text        String
+  language    String?
+  isFinal     Boolean   @default(false)
+  startedAt   DateTime // timestamp начала utterance
+  endedAt     DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@unique([videoSessionId, utteranceId])
+  @@index([videoSessionId])
+}
+
+model TranscriptionUsage {
+  id String @id @default(cuid())
+
+  videoSessionId String
+  videoSession   VideoSession @relation(fields: [videoSessionId], references: [id])
+
+  participantId String?
+  participant   Participant? @relation(fields: [participantId], references: [id])
+
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id])
+
+  startedAt DateTime  @default(now())
+  endedAt   DateTime?
+
+  durationSeconds Int // Длительность в секундах
+  durationMinutes Int // Длительность в минутах (округлённая вверх)
+
+  audioChunksSent     Int @default(0)
+  transcriptsReceived Int @default(0)
+  finalTranscripts    Int @default(0)
+  partialTranscripts  Int @default(0)
+
+  costPerMinute Float @default(0.01) // Стоимость за минуту (по умолчанию $0.01)
+  totalCost     Float @default(0) // Общая стоимость
+
+  errorsCount Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([videoSessionId])
+  @@index([participantId])
+  @@index([userId])
+  @@index([createdAt])
+}

@@ -35,6 +35,23 @@ server.on('request', (req, res) => {
     return
   }
 
+  // Root endpoint - информация о сервере
+  if (req.url === '/' && req.method === 'GET') {
+    res.statusCode = 200
+    res.end(JSON.stringify({
+      service: 'Sessions WebSocket Transcription Server',
+      status: 'running',
+      version: '1.0.0',
+      endpoints: {
+        health: '/health',
+        metrics: '/metrics',
+        websocket: '/api/realtime/transcribe'
+      },
+      timestamp: new Date().toISOString()
+    }))
+    return
+  }
+
   // Для всех остальных запросов возвращаем 404
   res.statusCode = 404
   res.end(JSON.stringify({ error: 'Not found' }))

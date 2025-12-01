@@ -2,17 +2,9 @@
   "buildCommand": "npm run build",
   "devCommand": "npm run dev",
   "installCommand": "npm install",
-  "framework": "nextjs",
-  "env": {
-    "DATABASE_URL": "@database_url",
-    "LIVEKIT_API_KEY": "@livekit_api_key",
-    "LIVEKIT_API_SECRET": "@livekit_api_secret",
-    "NEXT_PUBLIC_LIVEKIT_URL": "@next_public_livekit_url",
-    "OPENAI_API_KEY": "@openai_api_key",
-    "NEXT_PUBLIC_WS_HOST": "@next_public_ws_host",
-    "NEXT_PUBLIC_WS_PORT": "@next_public_ws_port"
-  }
+  "framework": "nextjs"
 }
+
 
 
 

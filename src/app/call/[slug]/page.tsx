@@ -168,7 +168,7 @@ function CallRoomContent({
   serverUrl: string
 }) {
   const { room, isConnected } = useRoom(token, serverUrl)
-  const { participants, localParticipant } = useParticipants(room)
+  const { localParticipant, remoteParticipants } = useParticipants(room)
   const [micEnabled, setMicEnabled] = useState(false)
   const [cameraEnabled, setCameraEnabled] = useState(false)
   const [screenShareEnabled, setScreenShareEnabled] = useState(false)
@@ -367,9 +367,8 @@ function CallRoomContent({
     <div className="relative flex flex-col h-full">
       <div className="flex-1 min-w-0 relative">
         <VideoGrid 
-          participants={participants}
+          remoteParticipants={remoteParticipants}
           localParticipant={localParticipant || undefined}
-          room={room}
         />
       </div>
       <div className="p-4 pb-8">

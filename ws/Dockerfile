@@ -1,11 +1,13 @@
 # Dockerfile для WebSocket сервера транскрипции
-FROM node:20-alpine
+# Используем Debian-based образ для лучшей совместимости с Prisma
+FROM node:20-slim
 
 WORKDIR /app
 
-# Устанавливаем OpenSSL для Prisma (Alpine 3.22 использует OpenSSL 3.x)
-# Prisma может работать с OpenSSL 3.x, но если нужна совместимость с 1.1, используем openssl
-RUN apk add --no-cache openssl libc6-compat
+# Устанавливаем необходимые зависимости для Prisma
+RUN apt-get update && \
+    apt-get install -y openssl ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
 
 # Копируем package.json для установки зависимостей
 COPY package.json ./

@@ -123,5 +123,6 @@ export const authOptions: NextAuthOptions = {
     signIn: '/auth/signin',
   },
   secret: process.env.NEXTAUTH_SECRET,
+  useSecureCookies: process.env.NEXTAUTH_URL?.startsWith('https://') ?? false,
 }
 

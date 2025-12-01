@@ -85,17 +85,23 @@ GET https://your-ws-service.onrender.com/health
 
 2. **WebSocket Server Port:**
    - **Key:** `NEXT_PUBLIC_WS_PORT`
-   - **Value:** `10000` (или не указывайте, если используете стандартный порт 443 для WSS)
-   - ⚠️ **Важно:** Для production (HTTPS/WSS) код автоматически использует WSS на стандартном порту 443
-   - Порт указывается только для dev-окружения (localhost)
+   - **Value:** `10000` (ОБЯЗАТЕЛЬНО!)
+   - ⚠️ **КРИТИЧЕСКИ ВАЖНО:** Render не проксирует WebSocket на стандартный порт 443
+   - Если порт указан в переменной окружения, он будет использован даже для production
+   - Без указания порта WebSocket не подключится к Render серверу
 
 ### Как работает автоматическое определение протокола:
 
 Код в `src/hooks/useLocalParticipantTranscription.ts` автоматически:
 - Определяет, что мы в production (если `window.location.protocol === 'https:'`)
 - Использует `wss://` для HTTPS и `ws://` для HTTP
-- Для WSS не указывает порт (используется стандартный 443)
+- **Если `NEXT_PUBLIC_WS_PORT` указан:** порт добавляется в URL даже для production
+- **Если `NEXT_PUBLIC_WS_PORT` не указан:** для WSS используется стандартный порт 443 (не указывается в URL)
 - Для WS указывает порт из `NEXT_PUBLIC_WS_PORT` (по умолчанию 3001)
+
+### Пример URL для Render:
+- С портом: `wss://sessions-ws.onrender.com:10000/api/realtime/transcribe?token=...`
+- Без порта (не работает на Render): `wss://sessions-ws.onrender.com/api/realtime/transcribe?token=...`
 
 ## 6. CORS (если нужно)
 
@@ -114,9 +120,11 @@ GET https://your-ws-service.onrender.com/health
 ## 9. Проблемы и решения
 
 ### Проблема: WebSocket не подключается
-- Проверьте, что порт правильно настроен
+- **Проверьте, что `NEXT_PUBLIC_WS_PORT=10000` установлена в Vercel**
 - Убедитесь, что используется `wss://` для HTTPS
+- Проверьте, что порт добавляется в URL (должно быть `wss://host:10000/...`)
 - Проверьте firewall настройки Render
+- Проверьте логи в Render Dashboard для ошибок подключения
 
 ### Проблема: Health check fails
 - Убедитесь, что `/health` endpoint работает

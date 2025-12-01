@@ -122,7 +122,10 @@ export function handleClientConnection({ ws, req }: ClientConnectionOptions): vo
       // Подписываемся на транскрипты от Gladia
       bridge.onTranscript(async (event: TranscriptEvent) => {
         try {
-          // Отправляем транскрипт клиенту (partial и final)
+          // ВАЖНО: Отправляем транскрипт ТОЛЬКО подключенному клиенту (transcription host)
+          // WebSocket сервер НЕ бродкастит транскрипты всем участникам
+          // Распространение среди других участников происходит через LiveKit data channel
+          // (реализовано на клиенте в useLocalParticipantTranscription)
           if (ws.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({
               type: 'transcription',
@@ -138,7 +141,9 @@ export function handleClientConnection({ ws, req }: ClientConnectionOptions): vo
           // Partial-ы отправляются клиенту для UI, но не сохраняются в БД
           // Это снижает нагрузку на БД в 50-100 раз (partial обновляется каждые 200-500мс)
           if (event.isFinal) {
-            await appendTranscriptChunk({
+            // Добавляем в очередь для batch-записи (неблокирующий вызов)
+            // Запись произойдет асинхронно через batch-систему
+            appendTranscriptChunk({
               sessionSlug,
               participantIdentity: participantIdentity || undefined,
               utteranceId: event.utteranceId,
@@ -146,19 +151,25 @@ export function handleClientConnection({ ws, req }: ClientConnectionOptions): vo
               isFinal: true,
               startedAt: event.startedAt,
               endedAt: event.endedAt,
+            }).catch((error) => {
+              // Ошибка добавления в очередь (например, переполнение)
+              const errorMsg = error instanceof Error ? error.message : String(error)
+              console.error('[WS-SERVER] Error queueing transcript for batch insert:', error)
+              recordError(`Error queueing transcript: ${errorMsg}`)
             })
-            console.log('[WS-SERVER] Final transcript saved to DB', {
-              sessionSlug,
-              utteranceId: event.utteranceId,
-              textLength: event.text.length,
-            })
+            
+            // Не логируем каждый финальный транскрипт (слишком много логов при высокой нагрузке)
+            // Логирование происходит в batch-системе при flush
           } else {
             // Partial транскрипт - только для клиента, не сохраняем в БД
-            console.log('[WS-SERVER] Partial transcript sent to client (not saved to DB)', {
-              sessionSlug,
-              utteranceId: event.utteranceId,
-              textLength: event.text.length,
-            })
+            // Логируем только периодически, чтобы не засорять логи
+            if (Math.random() < 0.01) { // Логируем ~1% partial транскриптов
+              console.log('[WS-SERVER] Partial transcript sent to client (not saved to DB)', {
+                sessionSlug,
+                utteranceId: event.utteranceId,
+                textLength: event.text.length,
+              })
+            }
           }
         } catch (error) {
           const errorMsg = error instanceof Error ? error.message : String(error)

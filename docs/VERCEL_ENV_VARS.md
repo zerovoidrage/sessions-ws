@@ -21,21 +21,27 @@
 
 ### 2. NEXT_PUBLIC_WS_PORT
 
-**Значение:** `10000` (или можно не указывать)
+**Значение:** `10000` (ОБЯЗАТЕЛЬНО для Render!)
 
 ⚠️ **Важно:**
-- Для production (HTTPS) код автоматически использует WSS на порту 443
-- Порт указывается только для dev-окружения (localhost)
-- Можно оставить пустым или установить для совместимости
+- **Для Render:** ОБЯЗАТЕЛЬНО установите `NEXT_PUBLIC_WS_PORT=10000`
+- Render не проксирует WebSocket на стандартный порт 443
+- Если порт указан в переменной окружения, он будет использован даже для production
+- Если порт не указан, для production используется стандартный порт 443 (не указывается в URL)
 
 ### Как это работает:
 
-1. В **production** (HTTPS):
+1. В **production** (HTTPS) с Render:
+   - Протокол: `wss://`
+   - Порт: из `NEXT_PUBLIC_WS_PORT` (10000 для Render)
+   - URL: `wss://sessions-ws.onrender.com:10000/api/realtime/transcribe?token=...`
+
+2. В **production** (HTTPS) без указанного порта:
    - Протокол: `wss://`
    - Порт: 443 (не указывается в URL)
    - URL: `wss://sessions-ws.onrender.com/api/realtime/transcribe?token=...`
 
-2. В **development** (HTTP):
+3. В **development** (HTTP):
    - Протокол: `ws://`
    - Порт: из `NEXT_PUBLIC_WS_PORT` (по умолчанию 3001)
    - URL: `ws://localhost:3001/api/realtime/transcribe?token=...`
@@ -76,9 +82,10 @@
    - Хост WebSocket сервера транскрипции
    - Пример: `sessions-ws.onrender.com` (БЕЗ протокола)
 
-10. **NEXT_PUBLIC_WS_PORT** (опционально)
-    - Порт для dev-окружения
-    - Значение: `10000` или можно не указывать
+10. **NEXT_PUBLIC_WS_PORT** (ОБЯЗАТЕЛЬНО для Render!)
+    - Порт WebSocket сервера
+    - Значение: `10000` (для Render)
+    - ⚠️ **Важно:** Render требует явного указания порта, так как не проксирует WebSocket на стандартный порт
 
 ### Опциональные переменные:
 

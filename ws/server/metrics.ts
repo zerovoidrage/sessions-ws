@@ -12,6 +12,7 @@ export interface Metrics {
     timestamp: Date
   }
   uptime: number // время работы сервера в секундах
+  // Метрики очереди транскриптов (добавляются в index.ts через getQueueMetrics)
 }
 
 const serverStartTime = Date.now()

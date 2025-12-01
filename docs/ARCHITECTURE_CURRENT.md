@@ -170,37 +170,61 @@ sessions/
 ├── infra/
 │   ├── prisma/
 │   │   ├── sessions.repository.ts      # CRUD сессий
-│   │   ├── participants.repository.ts   # Участники сессий
-│   │   └── transcripts.repository.ts     # Транскрипты
+│   │   └── transcripts.repository.ts    # Транскрипты
 │   ├── livekit/
 │   │   ├── token.service.ts             # Генерация LiveKit токенов
 │   │   └── client-config.ts             # Конфигурация LiveKit клиента
 │   ├── transcription/
 │   │   ├── transcript.types.ts
 │   │   ├── appendTranscriptChunk.ts     # Сохранение транскриптов в БД
-│   │   └── listSessionTranscripts.ts
+│   │   ├── listSessionTranscripts.ts
+│   │   ├── transcription-flags.ts        # Feature flags для транскрипции
+│   │   ├── transcription-limits.ts      # Лимиты транскрипции
+│   │   ├── transcription-metrics.ts     # Метрики транскрипции
+│   │   ├── transcription-usage.repository.ts  # Репозиторий использования
+│   │   └── transcription-usage.types.ts # Типы использования
 │   └── participants/
-│       └── participants.repository.ts
+│       └── participants.repository.ts   # Управление участниками
 ├── application/
 │   ├── createSession.ts
+│   ├── deleteSession.ts                 # Удаление сессии
 │   ├── listSessionsBySpace.ts
 │   ├── getSessionBySlug.ts
-│   └── endSession.ts
+│   ├── endSession.ts
+│   ├── upsertParticipantOnJoin.ts       # Создание/обновление участника при входе
+│   ├── selectNewTranscriptionHost.ts     # Выбор нового host для транскрипции
+│   └── saveTranscriptionUsage.ts        # Сохранение статистики использования
 └── api/
     ├── createSessionEndpoint.ts
-    └── listSessionsEndpoint.ts
+    ├── deleteSessionEndpoint.ts
+    ├── listSessionsEndpoint.ts
+    ├── upsertParticipantOnJoinEndpoint.ts
+    ├── selectNewTranscriptionHostEndpoint.ts
+    └── startTranscriptionServiceEndpoint.ts
 ```
 
 #### HTTP Routes
 - `GET /api/sessions` — список сессий активного пространства
 - `POST /api/sessions` — создать сессию
+- `DELETE /api/sessions/[slug]` — удалить сессию
 - `GET /api/sessions/[slug]/token` — получить LiveKit токен для подключения
+- `POST /api/sessions/[slug]/participants/join` — присоединиться к сессии как участник
+- `GET /api/sessions/[slug]/participants/[identity]` — получить информацию об участнике
+- `POST /api/sessions/[slug]/transcription-host` — выбрать нового host для транскрипции
+- `POST /api/sessions/[slug]/transcription/start` — запустить транскрипцию
+- `GET /api/sessions/[slug]/transcription/usage` — получить статистику использования транскрипции
+- `POST /api/transcription/usage/save` — сохранить статистику использования
+- `GET /api/transcription/stats` — получить общую статистику транскрипции
 
 #### Особенности
 - **Привязка к Space** через `spaceId`
 - **LiveKit интеграция** для видеосвязи
 - **Gladia транскрипция** через WebSocket сервер
-- **Автоматическое создание участников** при транскрипции
+- **Автоматическое создание участников** при входе в сессию
+- **Designated transcription host** — один участник отвечает за транскрипцию
+- **Feature flags** для управления транскрипцией
+- **Лимиты и метрики** для отслеживания использования
+- **Гостевой доступ** — возможность присоединиться без авторизации
 
 ---
 
@@ -393,25 +417,35 @@ enum ParticipantRole {
 
 ```
 ws/server/
-├── index.ts              # Точка входа, создание WebSocket сервера
-├── client-connection.ts  # Обработка клиентских подключений
-├── gladia-bridge.ts      # Интеграция с Gladia API
-└── db.ts                 # Prisma Client для WebSocket сервера
+├── index.ts                    # Точка входа, создание WebSocket сервера
+├── client-connection.ts        # Обработка клиентских подключений
+├── gladia-bridge.ts            # Интеграция с Gladia API
+├── transcription-service.ts    # Сервис транскрипции
+├── append-transcript-chunk.ts  # Сохранение транскриптов в БД
+├── metrics.ts                  # Метрики WebSocket сервера
+└── db.ts                       # Prisma Client для WebSocket сервера
 ```
 
 ### Поток данных
 
-1. **Клиент** → WebSocket сервер (`ws://localhost:3001/api/realtime/transcribe?sessionSlug=...`)
+1. **Клиент** → WebSocket сервер (`ws://host:port/api/realtime/transcribe?token=...`)
 2. **WebSocket сервер** → Gladia API (инициализация сессии, пересылка аудио)
 3. **Gladia** → WebSocket сервер (транскрипты)
-4. **WebSocket сервер** → БД (сохранение транскриптов)
+4. **WebSocket сервер** → БД (сохранение транскриптов через `append-transcript-chunk`)
 5. **WebSocket сервер** → Клиент (транскрипты для отображения)
+
+### HTTP Endpoints WebSocket сервера
+- `GET /health` — health check
+- `GET /metrics` — метрики сервера (количество подключений, транскриптов и т.д.)
 
 ### Особенности
 - **TypeScript** вместо JavaScript
-- **Модульная структура** (client-connection, gladia-bridge)
-- **Сохранение транскриптов в БД** через `appendTranscriptChunk`
+- **Модульная структура** (client-connection, gladia-bridge, transcription-service)
+- **Сохранение транскриптов в БД** через `append-transcript-chunk`
 - **Передача `utteranceId`** для правильной группировки на клиенте
+- **JWT авторизация** через токен в query параметре
+- **Метрики** для мониторинга работы сервера
+- **Отдельный Prisma schema** для WebSocket сервера
 
 ---
 
@@ -431,6 +465,10 @@ ws/server/
 - **`video-grid/VideoGrid.tsx`** — сетка видео участников
 - **`video-tile/VideoTile.tsx`** — отдельное видео участника
 - **`control-bar/ControlBar.tsx`** — панель управления (микрофон, камера, экран, выход)
+- **`guest-join-gate/GuestJoinGate.tsx`** — форма для гостевого входа в сессию
+- **`edit-profile-modal/`** — модальное окно редактирования профиля
+- **`modal/`** — базовый компонент модального окна
+- **`input/`** — компонент поля ввода
 
 ---
 
@@ -445,9 +483,18 @@ ws/server/
 
 ### `/session/[slug]`
 - **Client Component** — видеосессия с LiveKit
+- **GuestJoinGate** — форма для гостевого входа (если не авторизован)
 - **VideoGrid** — отображение участников
 - **ControlBar** — управление медиа
 - **TranscriptSidebar** — real-time транскрипция
+- **Hooks**:
+  - `useRoom` — управление подключением к LiveKit комнате
+  - `useParticipants` — управление участниками
+  - `useLocalParticipantTranscription` — локальная транскрипция (для host)
+  - `useTranscriptStream` — получение транскриптов через LiveKit data channel
+
+### `/call/[slug]`
+- **Legacy route** — старый путь для видеосессий (может быть удален)
 
 ### `/tasks`
 - **Server Component** — проверка режима Space
@@ -455,6 +502,33 @@ ws/server/
 - **Redirect** — если режим `SESSIONS_ONLY`
 
 ---
+
+## Hooks (`src/hooks/`)
+
+### `useRoom.ts`
+Управление подключением к LiveKit комнате:
+- Создание и подключение к комнате
+- Отслеживание состояния подключения
+- Обработка переподключений
+
+### `useParticipants.ts`
+Управление участниками сессии:
+- Получение локального участника
+- Получение удаленных участников
+- Отслеживание изменений участников
+
+### `useLocalParticipantTranscription.ts`
+Локальная транскрипция для transcription host:
+- Управление AudioContext и AudioWorklet
+- Подключение к WebSocket серверу транскрипции
+- Обработка аудио потока и отправка на сервер
+- Публикация транскриптов через LiveKit data channel
+
+### `useTranscriptStream.ts`
+Получение транскриптов через LiveKit data channel:
+- Подписка на сообщения от других участников
+- Группировка транскриптов по `utteranceId`
+- Обновление UI в реальном времени
 
 ## Принципы архитектуры
 
@@ -488,6 +562,16 @@ HTTP routes — тонкие адаптеры:
 - **`core/sessions`** — видеосессии (включая LiveKit, Gladia внутри `infra/`)
 - **`core/tasks`** — задачи (скелет)
 
+### 5. Legacy модули
+
+В `src/modules/` есть дублирующие модули вне `core/`:
+- `modules/livekit/` — legacy, должен быть в `core/sessions/infra/livekit/`
+- `modules/participants/` — legacy, должен быть в `core/sessions/infra/participants/`
+- `modules/sessions/` — legacy, должен быть в `core/sessions/`
+- `modules/transcription/` — legacy, должен быть в `core/sessions/infra/transcription/`
+
+**Рекомендация**: использовать только модули из `core/`, legacy модули могут быть удалены в будущем.
+
 ---
 
 ## Переменные окружения
@@ -519,6 +603,9 @@ CLOUDINARY_API_SECRET=
 WS_PORT=3001
 NEXT_PUBLIC_WS_PORT=3001
 NEXT_PUBLIC_WS_HOST=localhost
+
+# Transcription
+NEXT_PUBLIC_TRANSCRIPTION_ENABLED=true
 ```
 
 ---
@@ -538,6 +625,13 @@ NEXT_PUBLIC_WS_HOST=localhost
   "db:studio": "prisma studio"
 }
 ```
+
+### WebSocket Server
+
+WebSocket сервер имеет отдельный `package.json` в `ws/` и может быть запущен независимо:
+- `ws/server/index.ts` — точка входа
+- Отдельный Prisma schema в `ws/prisma/schema.prisma`
+- Dockerfile для деплоя (`ws/Dockerfile`)
 
 ---
 
@@ -570,6 +664,34 @@ NEXT_PUBLIC_WS_HOST=localhost
 - **`docs/ARCHITECTURE.md`** — общая архитектура проекта (legacy)
 - **`docs/GLADIA_INTEGRATION.md`** — интеграция с Gladia
 - **`docs/ARCHITECTURE_CURRENT.md`** — этот документ (текущая архитектура)
+
+---
+
+## Транскрипция
+
+### Архитектура транскрипции
+
+1. **Designated Host** — один участник (обычно создатель сессии) отвечает за транскрипцию
+2. **AudioWorklet** — обработка аудио на клиенте (16kHz, PCM16)
+3. **WebSocket** — отправка аудио чанков на сервер транскрипции
+4. **Gladia API** — обработка аудио и генерация транскриптов
+5. **LiveKit Data Channel** — распространение транскриптов всем участникам
+6. **Database** — сохранение транскриптов в БД для истории
+
+### Feature Flags
+
+Транскрипция управляется через feature flags:
+- Глобальный флаг (`NEXT_PUBLIC_TRANSCRIPTION_ENABLED`)
+- Лимиты на пользователя и сессию
+- Максимальная длительность транскрипции
+
+### Метрики
+
+Отслеживание использования транскрипции:
+- Количество отправленных аудио чанков
+- Количество полученных транскриптов (partial/final)
+- Длительность транскрипции
+- Ошибки
 
 ---
 

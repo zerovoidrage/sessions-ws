@@ -5,8 +5,8 @@ import { useParams, useRouter } from 'next/navigation'
 import { useSession } from 'next-auth/react'
 import { Room, Track, ConnectionState, RoomEvent } from 'livekit-client'
 import { TranscriptSidebar } from '@/components/call/TranscriptSidebar'
+import { TranscriptProvider, useTranscriptContext } from '@/contexts/TranscriptContext'
 import { useLocalParticipantTranscription } from '@/hooks/useLocalParticipantTranscription'
-import { useTranscriptStream } from '@/hooks/useTranscriptStream'
 import { useRoom } from '@/hooks/useRoom'
 import { useParticipants } from '@/hooks/useParticipants'
 import { VideoGrid } from '@/shared/ui/video-grid'
@@ -197,6 +197,76 @@ function SessionContent({
   const [cameraEnabled, setCameraEnabled] = useState(false)
   const [screenShareEnabled, setScreenShareEnabled] = useState(false)
   const participantJoinedRef = useRef(false) // Флаг, чтобы вызвать join только один раз
+  
+  // Обертываем контент в TranscriptProvider для изоляции транскрипции
+  return (
+    <TranscriptProvider sessionSlug={sessionSlug} room={room}>
+      <SessionContentInner
+        sessionSlug={sessionSlug}
+        router={router}
+        room={room}
+        isConnected={isConnected}
+        connectionState={connectionState}
+        localParticipant={localParticipant}
+        remoteParticipants={remoteParticipants}
+        micEnabled={micEnabled}
+        setMicEnabled={setMicEnabled}
+        cameraEnabled={cameraEnabled}
+        setCameraEnabled={setCameraEnabled}
+        screenShareEnabled={screenShareEnabled}
+        setScreenShareEnabled={setScreenShareEnabled}
+        participantJoinedRef={participantJoinedRef}
+        transcriptionToken={transcriptionToken}
+        sessionCreatedByUserId={sessionCreatedByUserId}
+        currentUserId={currentUserId}
+        identity={identity}
+        displayName={displayName}
+      />
+    </TranscriptProvider>
+  )
+}
+
+function SessionContentInner({
+  sessionSlug,
+  router,
+  room,
+  isConnected,
+  connectionState,
+  localParticipant,
+  remoteParticipants,
+  micEnabled,
+  setMicEnabled,
+  cameraEnabled,
+  setCameraEnabled,
+  screenShareEnabled,
+  setScreenShareEnabled,
+  participantJoinedRef,
+  transcriptionToken,
+  sessionCreatedByUserId,
+  currentUserId,
+  identity,
+  displayName,
+}: {
+  sessionSlug: string
+  router: ReturnType<typeof useRouter>
+  room: Room | null
+  isConnected: boolean
+  connectionState: ConnectionState
+  localParticipant: any
+  remoteParticipants: any[]
+  micEnabled: boolean
+  setMicEnabled: (enabled: boolean) => void
+  cameraEnabled: boolean
+  setCameraEnabled: (enabled: boolean) => void
+  screenShareEnabled: boolean
+  setScreenShareEnabled: (enabled: boolean) => void
+  participantJoinedRef: React.MutableRefObject<boolean>
+  transcriptionToken?: string
+  sessionCreatedByUserId?: string | null
+  currentUserId?: string
+  identity: string
+  displayName: string
+}) {
 
   // Создание участника в БД при подключении к комнате
   useEffect(() => {
@@ -273,14 +343,11 @@ function SessionContent({
     isTranscriptionHost, // Только host запускает транскрипцию
     userId: currentUserId, // Передаём userId для учёта использования
   })
-  // ВСЕ участники (и host, и не-host) используют useTranscriptStream для получения транскриптов
-  // Host получает транскрипты дважды:
-  // 1. Через onTranscriptCallback (для локального отображения без задержки)
-  // 2. Через dataReceived (как все остальные, для синхронизации)
-  // Не-host участники получают транскрипты только через dataReceived
-  const { addMessage, messages } = useTranscriptStream({ sessionSlug, room })
+  // Используем контекст транскрипции для изоляции от остального UI
+  // Контекст обрабатывает получение транскриптов через LiveKit data channel
+  const { addMessage } = useTranscriptContext()
   
-  console.log('[SessionContent] useTranscriptStream initialized', {
+  console.log('[SessionContent] Transcript context initialized', {
     isTranscriptionHost,
     roomState: room?.state,
     hasRoom: !!room,
@@ -420,7 +487,7 @@ function SessionContent({
 
   // Слушаем сообщения о смене transcription host через LiveKit data channel
   // ВАЖНО: Этот handler обрабатывает только сообщения о смене host
-  // Обычные транскрипты обрабатываются в useTranscriptStream
+  // Обычные транскрипты обрабатываются в TranscriptContext
   useEffect(() => {
     if (!room) return
 
@@ -671,7 +738,7 @@ function SessionContent({
           screenShareEnabled={screenShareEnabled}
         />
       </div>
-      <TranscriptSidebar sessionSlug={sessionSlug} messages={messages} />
+      <TranscriptSidebar sessionSlug={sessionSlug} />
     </div>
   )
 }

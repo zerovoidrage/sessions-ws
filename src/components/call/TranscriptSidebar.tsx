@@ -1,13 +1,15 @@
 // src/components/call/TranscriptSidebar.tsx
+// Оптимизированный TranscriptSidebar с виртуализацией и изоляцией через контекст
+
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
-import type { TranscriptMessage } from '@/types/transcript'
-import { Avatar } from '@/shared/ui/avatar/Avatar'
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
+import { useTranscriptContext } from '@/contexts/TranscriptContext'
+import { TranscriptBubble } from '@/shared/ui/transcript-bubble'
+import type { TranscriptBubbleState } from '@/types/transcript-state'
 
 interface TranscriptSidebarProps {
   sessionSlug: string
-  messages: TranscriptMessage[]
 }
 
 interface ParticipantData {
@@ -16,7 +18,15 @@ interface ParticipantData {
   noAvatarColor?: string | null
 }
 
-export function TranscriptSidebar({ sessionSlug, messages }: TranscriptSidebarProps) {
+/**
+ * Простая виртуализация: рендерим только видимые элементы + небольшой буфер.
+ * Для более сложных случаев можно использовать react-virtuoso или react-window.
+ */
+const VISIBLE_ITEMS_COUNT = 50 // Максимум видимых элементов одновременно
+const SCROLL_BUFFER = 10 // Буфер элементов сверху и снизу для плавного скролла
+
+export function TranscriptSidebar({ sessionSlug }: TranscriptSidebarProps) {
+  const { transcripts } = useTranscriptContext()
   const containerRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const lastMessageIdRef = useRef<string | null>(null)
@@ -24,53 +34,56 @@ export function TranscriptSidebar({ sessionSlug, messages }: TranscriptSidebarPr
   const [animatingMessageId, setAnimatingMessageId] = useState<string | null>(null)
   const [participantsData, setParticipantsData] = useState<Map<string, ParticipantData>>(new Map())
   const loadedParticipantsRef = useRef<Set<string>>(new Set())
+  const [scrollTop, setScrollTop] = useState(0)
+  const [containerHeight, setContainerHeight] = useState(0)
 
-  // Убираем дубликаты по id перед сортировкой
-  const sorted = useMemo(() => {
-    const unique = new Map<string, TranscriptMessage>()
-    for (const msg of messages) {
-      const existing = unique.get(msg.id)
-      if (!existing || msg.timestamp > existing.timestamp) {
-        unique.set(msg.id, msg)
-      }
+  // Виртуализация: определяем видимый диапазон элементов
+  const visibleRange = useMemo(() => {
+    if (transcripts.length === 0) {
+      return { start: 0, end: 0 }
     }
-    return Array.from(unique.values()).sort((a, b) => a.timestamp - b.timestamp)
-  }, [messages])
 
-  // Показываем только последние 6 сообщений
-  const visibleMessages = useMemo(() => {
-    return sorted.slice(-6)
-  }, [sorted])
+    // Для начала показываем последние N элементов (новые сообщения)
+    // При скролле вверх можно расширить диапазон
+    const total = transcripts.length
+    const start = Math.max(0, total - VISIBLE_ITEMS_COUNT - SCROLL_BUFFER)
+    const end = total
 
-  // Отслеживание нового сообщения для анимации (только последнее)
+    return { start, end }
+  }, [transcripts.length])
+
+  // Видимые транскрипты (мемоизированы)
+  const visibleTranscripts = useMemo(() => {
+    return transcripts.slice(visibleRange.start, visibleRange.end)
+  }, [transcripts, visibleRange])
+
+  // Отслеживание нового сообщения для анимации
   useEffect(() => {
-    if (visibleMessages.length === 0) return
+    if (visibleTranscripts.length === 0) return
 
-    const lastMessage = visibleMessages[visibleMessages.length - 1]
+    const lastMessage = visibleTranscripts[visibleTranscripts.length - 1]
     const isNewMessage = !seenMessageIdsRef.current.has(lastMessage.id)
 
     if (isNewMessage) {
       seenMessageIdsRef.current.add(lastMessage.id)
       setAnimatingMessageId(lastMessage.id)
-      
-      // Убираем анимацию через 500ms после завершения
+
       setTimeout(() => {
         setAnimatingMessageId(null)
       }, 800)
     }
-  }, [visibleMessages])
+  }, [visibleTranscripts])
 
   // Автоскролл к новым сообщениям
   useEffect(() => {
-    if (visibleMessages.length === 0) return
+    if (visibleTranscripts.length === 0) return
 
-    const lastMessage = visibleMessages[visibleMessages.length - 1]
+    const lastMessage = visibleTranscripts[visibleTranscripts.length - 1]
     const isNewMessage = lastMessageIdRef.current !== lastMessage.id
 
     if (isNewMessage && scrollContainerRef.current) {
       lastMessageIdRef.current = lastMessage.id
-      
-      // Используем двойной requestAnimationFrame для гарантированного обновления DOM
+
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
           if (scrollContainerRef.current) {
@@ -79,59 +92,87 @@ export function TranscriptSidebar({ sessionSlug, messages }: TranscriptSidebarPr
         })
       })
     }
-  }, [visibleMessages])
+  }, [visibleTranscripts])
+
+  // Отслеживание размеров контейнера для виртуализации
+  useEffect(() => {
+    if (!scrollContainerRef.current) return
+
+    const resizeObserver = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        setContainerHeight(entry.contentRect.height)
+      }
+    })
+
+    resizeObserver.observe(scrollContainerRef.current)
+
+    return () => {
+      resizeObserver.disconnect()
+    }
+  }, [])
+
+  // Отслеживание скролла для виртуализации (ленивая загрузка старых сообщений)
+  useEffect(() => {
+    const container = scrollContainerRef.current
+    if (!container) return
+
+    const handleScroll = () => {
+      const currentScrollTop = container.scrollTop
+      setScrollTop(currentScrollTop)
+
+      // При скролле вверх можно расширить видимый диапазон для загрузки старых сообщений
+      // Пока используем простую реализацию: показываем последние N элементов
+    }
+
+    container.addEventListener('scroll', handleScroll, { passive: true })
+    return () => {
+      container.removeEventListener('scroll', handleScroll)
+    }
+  }, [])
 
   // Загружаем данные участников для отображения аватаров
-  useEffect(() => {
-    const loadParticipantData = async (speakerId: string) => {
-      // Пропускаем, если данные уже загружены
+  const loadParticipantData = useCallback(
+    async (speakerId: string) => {
       if (loadedParticipantsRef.current.has(speakerId)) {
         return
       }
 
-      // Помечаем как загружаемый, чтобы избежать дублирующих запросов
       loadedParticipantsRef.current.add(speakerId)
 
       try {
-        // Кодируем speakerId для безопасной передачи в URL (может содержать двоеточие, UUID и т.д.)
-        // Используем encodeURIComponent для безопасной передачи через URL
         const encodedSpeakerId = encodeURIComponent(speakerId)
         const res = await fetch(`/api/sessions/${sessionSlug}/participants/${encodedSpeakerId}`)
-        
+
         if (!res.ok) {
-          // Если запрос не удался, используем базовую информацию
           throw new Error(`Failed to fetch participant: ${res.status}`)
         }
-        
+
         const participant = await res.json()
-          // Обрабатываем как случай с пользователем, так и без
-          setParticipantsData((prev) => {
-            const next = new Map(prev)
-            if (participant.user) {
-              next.set(speakerId, {
-                displayName: participant.user.displayName,
-                avatarUrl: participant.user.avatarUrl,
-                noAvatarColor: participant.user.noAvatarColor,
-              })
-            } else {
-              // Если нет пользователя (гость), используем имя участника из БД
-              // Приоритет: participant.name > participant.identity > speakerId
-              // participant.name должен быть установлен при join через /api/sessions/[slug]/participants/join
-              const guestDisplayName = participant.name && participant.name !== participant.identity
+
+        setParticipantsData((prev) => {
+          const next = new Map(prev)
+          if (participant.user) {
+            next.set(speakerId, {
+              displayName: participant.user.displayName,
+              avatarUrl: participant.user.avatarUrl,
+              noAvatarColor: participant.user.noAvatarColor,
+            })
+          } else {
+            const guestDisplayName =
+              participant.name && participant.name !== participant.identity
                 ? participant.name
                 : participant.identity || speakerId
-              
-              next.set(speakerId, {
-                displayName: guestDisplayName,
-                avatarUrl: null,
-                noAvatarColor: null,
-              })
-            }
-            return next
-          })
+
+            next.set(speakerId, {
+              displayName: guestDisplayName,
+              avatarUrl: null,
+              noAvatarColor: null,
+            })
+          }
+          return next
+        })
       } catch (error) {
         console.error('Failed to load participant data:', error)
-        // При ошибке используем базовую информацию
         setParticipantsData((prev) => {
           const next = new Map(prev)
           next.set(speakerId, {
@@ -141,61 +182,54 @@ export function TranscriptSidebar({ sessionSlug, messages }: TranscriptSidebarPr
           })
           return next
         })
-        // Убираем из загруженных при ошибке
         loadedParticipantsRef.current.delete(speakerId)
       }
-    }
+    },
+    [sessionSlug]
+  )
 
-    // Загружаем данные для всех уникальных speakerId в сообщениях
-    const uniqueSpeakerIds = new Set(visibleMessages.map((msg) => msg.speakerId))
+  // Загружаем данные для всех уникальных speakerId в видимых транскриптах
+  useEffect(() => {
+    const uniqueSpeakerIds = new Set(visibleTranscripts.map((msg) => msg.speakerId))
     uniqueSpeakerIds.forEach((speakerId) => {
       loadParticipantData(speakerId)
     })
-  }, [visibleMessages, sessionSlug])
-
+  }, [visibleTranscripts, loadParticipantData])
 
   return (
-    <aside 
+    <aside
       ref={containerRef}
       className="absolute right-0 bottom-0 w-96 flex flex-col text-white-900 pointer-events-none"
     >
-      <div 
+      <div
         ref={scrollContainerRef}
         className="overflow-y-auto scrollbar-hide px-6 pt-6 pb-12 space-y-6"
       >
-        {visibleMessages.length === 0 ? null : (
-          visibleMessages.map((msg, index) => {
-            const shouldAnimate = animatingMessageId === msg.id
-            
-            const participantData = participantsData.get(msg.speakerId)
-            const displayName = participantData?.displayName || msg.speakerName
-
-            return (
-              <div 
-                key={msg.id}
-                className={`relative flex gap-6 ${shouldAnimate ? 'animate-slide-up-fade-in' : ''}`}
-              >
-                <Avatar
-                  displayName={displayName}
-                  avatarUrl={participantData?.avatarUrl || null}
-                  noAvatarColor={participantData?.noAvatarColor || null}
-                  size="md"
-                  className="flex-shrink-0"
-                />
-                <div className="flex-1 min-w-0">
-                  <div className="text-xs text-white-700 mb-1">
-                    {displayName}
-                  </div>
-                  <div className={`text-sm  ${msg.isFinal ? 'text-white-900' : 'text-white-900 opacity-40'}`}>
-                    {msg.text}
-                  </div>
-                </div>
+        {visibleTranscripts.length === 0 ? null : (
+          <>
+            {/* Индикатор, что есть старые сообщения (если видимый диапазон не начинается с 0) */}
+            {visibleRange.start > 0 && (
+              <div className="text-xs text-white-700 text-center py-2">
+                {visibleRange.start} older messages...
               </div>
-            )
-          })
+            )}
+
+            {visibleTranscripts.map((bubble) => {
+              const shouldAnimate = animatingMessageId === bubble.id
+              const participantData = participantsData.get(bubble.speakerId)
+
+              return (
+                <TranscriptBubble
+                  key={bubble.id}
+                  bubble={bubble}
+                  participantData={participantData}
+                  shouldAnimate={shouldAnimate}
+                />
+              )
+            })}
+          </>
         )}
       </div>
     </aside>
   )
 }
-

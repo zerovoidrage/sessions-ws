@@ -676,11 +676,15 @@ export function useLocalParticipantTranscription({
         
         const wsPort = process.env.NEXT_PUBLIC_WS_PORT
         let portSuffix = ''
+        // ВАЖНО: Если порт явно указан в переменной окружения, используем его даже для production
+        // Это необходимо для Render и других платформ, где WebSocket сервер работает на нестандартном порту
         if (wsPort) {
           portSuffix = `:${wsPort}`
         } else if (!isProduction) {
+          // Для dev окружения используем порт по умолчанию
           portSuffix = ':3001'
         }
+        // Для production без явного порта - используем стандартный порт (443 для WSS, не указываем в URL)
         
         const wsUrl = `${wsProtocol}://${wsHost}${portSuffix}/api/realtime/transcribe?token=${encodeURIComponent(transcriptionToken)}`
         
@@ -1074,11 +1078,15 @@ export function useLocalParticipantTranscription({
           
           const reconnectWsPort = process.env.NEXT_PUBLIC_WS_PORT
           let reconnectPortSuffix = ''
+          // ВАЖНО: Если порт явно указан в переменной окружения, используем его даже для production
+          // Это необходимо для Render и других платформ, где WebSocket сервер работает на нестандартном порту
           if (reconnectWsPort) {
             reconnectPortSuffix = `:${reconnectWsPort}`
           } else if (!reconnectIsProduction) {
+            // Для dev окружения используем порт по умолчанию
             reconnectPortSuffix = ':3001'
           }
+          // Для production без явного порта - используем стандартный порт (443 для WSS, не указываем в URL)
           
           const reconnectWsUrl = `${reconnectWsProtocol}://${reconnectWsHost}${reconnectPortSuffix}/api/realtime/transcribe?token=${encodeURIComponent(transcriptionTokenRef.current)}`
           

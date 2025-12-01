@@ -83,9 +83,11 @@ model VideoSession {
   title           String?
   createdByUserId String?
   createdBy       User?         @relation("VideoSessionsCreated", fields: [createdByUserId], references: [id])
-  status          SessionStatus @default(ACTIVE)
+  status          SessionStatus @default(CREATED)
   createdAt       DateTime      @default(now())
+  startedAt       DateTime?
   endedAt         DateTime?
+  lastActivityAt  DateTime?
 
   spaceId String
   space   Space  @relation(fields: [spaceId], references: [id])
@@ -93,9 +95,12 @@ model VideoSession {
   participants       Participant[]
   transcripts        TranscriptSegment[]
   transcriptionUsage TranscriptionUsage[]
+  analysis           SessionAnalysis?
 
   @@index([spaceId])
   @@index([createdByUserId])
+  @@index([status])
+  @@index([lastActivityAt])
 }
 
 // NextAuth models
@@ -138,8 +143,10 @@ model VerificationToken {
 }
 
 enum SessionStatus {
-  ACTIVE
-  ENDED
+  CREATED   // сессия создана, но ещё никто не заходил
+  LIVE      // хотя бы один участник заходил (мит реально стартовал)
+  ENDED     // мит закончился, готов к AI-анализу
+  EXPIRED   // мит так и не начался и протух
 }
 
 model Participant {
@@ -223,4 +230,28 @@ model TranscriptionUsage {
   @@index([participantId])
   @@index([userId])
   @@index([createdAt])
+}
+
+model SessionAnalysis {
+  id         String          @id @default(cuid())
+  sessionId  String          @unique
+  session    VideoSession    @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  status     AnalysisStatus  @default(PENDING)
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+
+  summary    String?
+  tasksJson  Json?
+  risksJson  Json?
+
+  @@index([sessionId])
+  @@index([status])
+}
+
+enum AnalysisStatus {
+  PENDING   // сессия завершена, анализ ещё не стартовал или в очереди
+  RUNNING   // анализ в процессе
+  DONE      // анализ успешно завершён, summary/tasks заполнены
+  FAILED    // анализ упал (можно перезапустить)
 }

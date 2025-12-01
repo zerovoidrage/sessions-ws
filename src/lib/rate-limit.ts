@@ -18,6 +18,13 @@ interface RateLimitConfig {
 const rateLimitStore = new Map<string, { count: number; resetAt: number }>()
 
 /**
+ * Очищает хранилище rate limit (для тестов).
+ */
+export function clearRateLimitStore(): void {
+  rateLimitStore.clear()
+}
+
+/**
  * Очищает устаревшие записи из хранилища (вызывается периодически).
  */
 function cleanupStore() {
@@ -163,7 +170,7 @@ export const RATE_LIMIT_CONFIGS = {
   },
   /** Аутентификация и токены */
   auth: {
-    maxRequests: 10,
+    maxRequests: process.env.NODE_ENV === 'development' ? 60 : 30, // Dev: 60/мин, Prod: 30/мин
     windowMs: 60 * 1000, // 1 минута
   },
   /** Загрузка файлов */

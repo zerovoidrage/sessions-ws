@@ -49,7 +49,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className={suisseIntl.variable}>
-      <body className="font-suisse-intl">
+      <body className="font-suisse-intl" suppressHydrationWarning>
         <ErrorBoundary>
           <Providers>{children}</Providers>
         </ErrorBoundary>

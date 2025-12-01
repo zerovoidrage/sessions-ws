@@ -31,6 +31,11 @@ export async function upsertParticipantOnJoinEndpoint(
     throw new Error('NOT_FOUND: Session not found')
   }
 
+  // Проверяем статус сессии - нельзя присоединяться к завершенным или протухшим сессиям
+  if (session.status === 'ENDED' || session.status === 'EXPIRED') {
+    throw new Error('FORBIDDEN: Session has ended')
+  }
+
   // Определяем роль:
   // - Если передан role в input (для гостей или явного указания) - используем его
   // - Если пользователь - создатель сессии, то HOST, иначе GUEST

@@ -267,22 +267,29 @@ function VideoGridComponent({ localParticipant, remoteParticipants, className }:
         gridTemplateColumns: `repeat(${gridCols}, minmax(0, 1fr))`,
       }}
     >
-      {allParticipants.map((participant) => {
-        const videoTrack = getVideoTrack(participant)
-        const isLocal = participant instanceof LocalParticipant
-        // Используем реальное состояние speaking из LiveKit (определяется по активности аудио)
-        const isSpeaking = participant.isSpeaking ?? false
+      {allParticipants
+        .filter((participant) => {
+          // Показываем только участников с видео треком или local participant
+          const videoTrack = getVideoTrack(participant)
+          const isLocal = participant instanceof LocalParticipant
+          return videoTrack || isLocal
+        })
+        .map((participant) => {
+          const videoTrack = getVideoTrack(participant)
+          const isLocal = participant instanceof LocalParticipant
+          // Используем реальное состояние speaking из LiveKit (определяется по активности аудио)
+          const isSpeaking = participant.isSpeaking ?? false
 
-        return (
-          <VideoTile
-            key={participant.identity}
-            track={videoTrack}
-            participantName={participant.name || participant.identity}
-            isLocal={isLocal}
-            isSpeaking={isSpeaking}
-          />
-        )
-      })}
+          return (
+            <VideoTile
+              key={participant.identity}
+              track={videoTrack}
+              participantName={participant.name || participant.identity}
+              isLocal={isLocal}
+              isSpeaking={isSpeaking}
+            />
+          )
+        })}
     </div>
   )
 }

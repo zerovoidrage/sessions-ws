@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/modules/core/identity/infra/auth.config'
 import { getSessionBySlug } from '@/modules/core/sessions/application/getSessionBySlug'
 import { generateToken, generateTranscriptionToken } from '@/modules/core/sessions/infra/livekit/token.service'
+import { withRateLimit, RATE_LIMIT_CONFIGS } from '@/lib/rate-limit'
 
 interface Params {
   params: Promise<{ slug: string }>
@@ -10,6 +11,12 @@ interface Params {
 
 // GET /api/sessions/[slug]/token?name=DisplayName
 export async function GET(req: Request, { params }: Params) {
+  // Rate limiting для получения токенов (защита от злоупотреблений)
+  const rateLimitResponse = await withRateLimit(RATE_LIMIT_CONFIGS.auth)(req)
+  if (rateLimitResponse) {
+    return rateLimitResponse
+  }
+
   try {
     const { slug } = await params
 
@@ -17,6 +24,11 @@ export async function GET(req: Request, { params }: Params) {
 
     if (!session) {
       return new NextResponse('Session not found', { status: 404 })
+    }
+
+    // Проверяем статус сессии - нельзя подключаться к завершенным или протухшим сессиям
+    if (session.status === 'ENDED' || session.status === 'EXPIRED') {
+      return new NextResponse('Session has ended', { status: 403 })
     }
 
     const url = new URL(req.url)

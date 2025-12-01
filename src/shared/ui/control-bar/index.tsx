@@ -20,9 +20,11 @@ export interface ControlBarProps {
   onScreenShareToggle?: (enabled: boolean) => void
   onChatToggle?: () => void
   onLeave?: () => void
+  onEndForEveryone?: () => void
   microphoneEnabled?: boolean
   cameraEnabled?: boolean
   screenShareEnabled?: boolean
+  isCreator?: boolean
   className?: string
 }
 
@@ -32,9 +34,11 @@ export function ControlBar({
   onScreenShareToggle,
   onChatToggle,
   onLeave,
+  onEndForEveryone,
   microphoneEnabled = false,
   cameraEnabled = false,
   screenShareEnabled = false,
+  isCreator = false,
   className,
 }: ControlBarProps) {
   return (
@@ -87,6 +91,17 @@ export function ControlBar({
           className="flex items-center justify-center text-white-700 hover:text-white-900"
         >
           <ChatCircle size={24} weight="regular" />
+        </Button>
+      )}
+
+      {onEndForEveryone && isCreator && (
+        <Button
+          variant="secondary"
+          size="md"
+          onClick={onEndForEveryone}
+          className="flex items-center justify-center text-white-900"
+        >
+          end for everyone
         </Button>
       )}
 

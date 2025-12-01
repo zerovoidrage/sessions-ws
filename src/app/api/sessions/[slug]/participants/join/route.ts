@@ -48,8 +48,13 @@ export async function POST(req: Request, { params }: Params) {
 
     return NextResponse.json(participant)
   } catch (error) {
-    if (error instanceof Error && error.message.includes('NOT_FOUND')) {
-      return new NextResponse('Session not found', { status: 404 })
+    if (error instanceof Error) {
+      if (error.message.includes('NOT_FOUND')) {
+        return new NextResponse('Session not found', { status: 404 })
+      }
+      if (error.message.includes('FORBIDDEN') || error.message.includes('Session has ended')) {
+        return new NextResponse('Session has ended', { status: 403 })
+      }
     }
     console.error('Error joining participant:', error)
     return new NextResponse('Failed to join participant', { status: 500 })

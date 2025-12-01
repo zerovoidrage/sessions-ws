@@ -7,7 +7,7 @@ export interface SessionCardProps {
   slug: string
   title?: string | null
   createdAt: Date
-  status: 'ACTIVE' | 'ENDED'
+  status: 'CREATED' | 'LIVE' | 'ENDED' | 'EXPIRED'
   onClick?: () => void
   onDelete?: () => void
   className?: string
@@ -57,9 +57,13 @@ export function SessionCard({
             <span
               className={cn(
                 'px-2 py-1 rounded text-xs',
-                status === 'ACTIVE'
+                status === 'LIVE'
                   ? 'bg-brand-green/20 text-brand-green'
-                  : 'bg-white-700/20 text-white-700'
+                  : status === 'CREATED'
+                  ? 'bg-white-600/20 text-white-600'
+                  : status === 'ENDED'
+                  ? 'bg-white-700/20 text-white-700'
+                  : 'bg-white-800/20 text-white-800' // EXPIRED
               )}
             >
               {status}

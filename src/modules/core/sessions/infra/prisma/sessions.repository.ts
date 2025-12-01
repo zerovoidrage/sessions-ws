@@ -8,7 +8,10 @@ export async function createSession(input: CreateSessionInput & { slug: string }
       title: input.title,
       createdByUserId: input.createdByUserId,
       spaceId: input.spaceId,
-      status: 'ACTIVE',
+      status: 'CREATED',
+      startedAt: null,
+      endedAt: null,
+      lastActivityAt: null,
     },
   })
 
@@ -20,7 +23,9 @@ export async function createSession(input: CreateSessionInput & { slug: string }
     spaceId: session.spaceId,
     status: session.status as Session['status'],
     createdAt: session.createdAt,
+    startedAt: session.startedAt,
     endedAt: session.endedAt,
+    lastActivityAt: session.lastActivityAt,
   }
 }
 
@@ -39,13 +44,20 @@ export async function getSessionBySlug(input: GetSessionBySlugInput): Promise<Se
     spaceId: session.spaceId,
     status: session.status as Session['status'],
     createdAt: session.createdAt,
+    startedAt: session.startedAt,
     endedAt: session.endedAt,
+    lastActivityAt: session.lastActivityAt,
   }
 }
 
 export async function listSessionsBySpace(spaceId: string): Promise<Session[]> {
   const sessions = await db.videoSession.findMany({
-    where: { spaceId },
+    where: { 
+      spaceId,
+      status: {
+        not: 'EXPIRED', // Исключаем протухшие сессии из основного списка
+      },
+    },
     orderBy: { createdAt: 'desc' },
   })
 
@@ -57,7 +69,9 @@ export async function listSessionsBySpace(spaceId: string): Promise<Session[]> {
     spaceId: s.spaceId,
     status: s.status as Session['status'],
     createdAt: s.createdAt,
+    startedAt: s.startedAt,
     endedAt: s.endedAt,
+    lastActivityAt: s.lastActivityAt,
   }))
 }
 
@@ -76,7 +90,9 @@ export async function getSessionById(sessionId: string): Promise<Session | null>
     spaceId: session.spaceId,
     status: session.status as Session['status'],
     createdAt: session.createdAt,
+    startedAt: session.startedAt,
     endedAt: session.endedAt,
+    lastActivityAt: session.lastActivityAt,
   }
 }
 
@@ -88,6 +104,101 @@ export async function endSession(sessionId: string): Promise<void> {
       endedAt: new Date(),
     },
   })
+}
+
+export async function updateSessionStatus(
+  sessionId: string,
+  status: Session['status'],
+  additionalData?: {
+    startedAt?: Date | null
+    endedAt?: Date | null
+    lastActivityAt?: Date | null
+  }
+): Promise<Session> {
+  const session = await db.videoSession.update({
+    where: { id: sessionId },
+    data: {
+      status,
+      ...(additionalData?.startedAt !== undefined && { startedAt: additionalData.startedAt }),
+      ...(additionalData?.endedAt !== undefined && { endedAt: additionalData.endedAt }),
+      ...(additionalData?.lastActivityAt !== undefined && { lastActivityAt: additionalData.lastActivityAt }),
+    },
+  })
+
+  return {
+    id: session.id,
+    slug: session.slug,
+    title: session.title,
+    createdByUserId: session.createdByUserId,
+    spaceId: session.spaceId,
+    status: session.status as Session['status'],
+    createdAt: session.createdAt,
+    startedAt: session.startedAt,
+    endedAt: session.endedAt,
+    lastActivityAt: session.lastActivityAt,
+  }
+}
+
+export async function updateSessionActivity(sessionId: string, lastActivityAt: Date): Promise<void> {
+  await db.videoSession.update({
+    where: { id: sessionId },
+    data: {
+      lastActivityAt,
+    },
+  })
+}
+
+export async function findInactiveLiveSessions(inactiveMinutes: number): Promise<Session[]> {
+  const cutoffTime = new Date(Date.now() - inactiveMinutes * 60 * 1000)
+  
+  const sessions = await db.videoSession.findMany({
+    where: {
+      status: 'LIVE',
+      lastActivityAt: {
+        not: null,
+        lt: cutoffTime,
+      },
+    },
+  })
+
+  return sessions.map((s) => ({
+    id: s.id,
+    slug: s.slug,
+    title: s.title,
+    createdByUserId: s.createdByUserId,
+    spaceId: s.spaceId,
+    status: s.status as Session['status'],
+    createdAt: s.createdAt,
+    startedAt: s.startedAt,
+    endedAt: s.endedAt,
+    lastActivityAt: s.lastActivityAt,
+  }))
+}
+
+export async function findOldCreatedSessions(expireHours: number): Promise<Session[]> {
+  const cutoffTime = new Date(Date.now() - expireHours * 60 * 60 * 1000)
+  
+  const sessions = await db.videoSession.findMany({
+    where: {
+      status: 'CREATED',
+      createdAt: {
+        lt: cutoffTime,
+      },
+    },
+  })
+
+  return sessions.map((s) => ({
+    id: s.id,
+    slug: s.slug,
+    title: s.title,
+    createdByUserId: s.createdByUserId,
+    spaceId: s.spaceId,
+    status: s.status as Session['status'],
+    createdAt: s.createdAt,
+    startedAt: s.startedAt,
+    endedAt: s.endedAt,
+    lastActivityAt: s.lastActivityAt,
+  }))
 }
 
 export async function deleteSessionById(sessionId: string): Promise<void> {

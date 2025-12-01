@@ -4,9 +4,16 @@ import { ensureUserHasAtLeastOneSpace } from '@/modules/core/spaces/application/
 import { listSpacesForUser } from '@/modules/core/spaces/application/listSpacesForUser'
 import { createSessionEndpoint } from '@/modules/core/sessions/api/createSessionEndpoint'
 import { listSessionsEndpoint } from '@/modules/core/sessions/api/listSessionsEndpoint'
+import { withRateLimit, RATE_LIMIT_CONFIGS, getClientIP } from '@/lib/rate-limit'
 
 // GET /api/sessions
-export async function GET() {
+export async function GET(req: Request) {
+  // Rate limiting
+  const rateLimitResponse = await withRateLimit(RATE_LIMIT_CONFIGS.default)(req)
+  if (rateLimitResponse) {
+    return rateLimitResponse
+  }
+
   try {
     const user = await getCurrentUser()
     if (!user) {
@@ -33,6 +40,12 @@ export async function GET() {
 
 // POST /api/sessions
 export async function POST(req: Request) {
+  // Rate limiting (строже для создания)
+  const rateLimitResponse = await withRateLimit(RATE_LIMIT_CONFIGS.create)(req)
+  if (rateLimitResponse) {
+    return rateLimitResponse
+  }
+
   try {
     const user = await getCurrentUser()
     if (!user) {

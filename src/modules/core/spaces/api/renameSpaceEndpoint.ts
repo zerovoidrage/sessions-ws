@@ -9,3 +9,4 @@ export async function renameSpaceEndpoint(user: DomainUser | null, spaceId: stri
 }
 
 
+

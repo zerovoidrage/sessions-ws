@@ -1,4 +1,4 @@
-export type SessionStatus = 'ACTIVE' | 'ENDED'
+export type SessionStatus = 'CREATED' | 'LIVE' | 'ENDED' | 'EXPIRED'
 
 export type ParticipantRole = 'HOST' | 'GUEST'
 
@@ -10,7 +10,9 @@ export interface Session {
   spaceId: string
   status: SessionStatus
   createdAt: Date
+  startedAt?: Date | null
   endedAt?: Date | null
+  lastActivityAt?: Date | null
 }
 
 export interface CreateSessionInput {
@@ -28,4 +30,16 @@ export interface ListSessionsBySpaceInput {
   userId: string
 }
 
+export type AnalysisStatus = 'PENDING' | 'RUNNING' | 'DONE' | 'FAILED'
+
+export interface SessionAnalysis {
+  id: string
+  sessionId: string
+  status: AnalysisStatus
+  createdAt: Date
+  updatedAt: Date
+  summary?: string | null
+  tasksJson?: unknown | null
+  risksJson?: unknown | null
+}
 

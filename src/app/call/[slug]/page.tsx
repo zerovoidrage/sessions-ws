@@ -8,6 +8,7 @@ import { TranscriptProvider, useTranscriptContext } from '@/contexts/TranscriptC
 import { useLocalParticipantTranscription } from '@/hooks/useLocalParticipantTranscription'
 import { useRoom } from '@/hooks/useRoom'
 import { useParticipants } from '@/hooks/useParticipants'
+import { useMediaControls } from '@/hooks/useMediaControls'
 import { VideoGrid } from '@/shared/ui/video-grid'
 import { ControlBar } from '@/shared/ui/control-bar'
 
@@ -193,9 +194,7 @@ function CallRoomContentInner({
   isConnected: boolean
 }) {
   const { localParticipant, remoteParticipants } = useParticipants(room)
-  const [micEnabled, setMicEnabled] = useState(false)
-  const [cameraEnabled, setCameraEnabled] = useState(false)
-  const [screenShareEnabled, setScreenShareEnabled] = useState(false)
+  const mediaControls = useMediaControls({ localParticipant })
 
   // Используем контекст транскрипции
   const { addMessage } = useTranscriptContext()
@@ -279,42 +278,9 @@ function CallRoomContentInner({
   // Теперь пользователь может оставаться в комнате даже при временных отключениях
   // Редирект происходит только при ручном нажатии кнопки Leave
 
-  const handleMicrophoneToggle = async (enabled: boolean) => {
-    if (!localParticipant) return
-    try {
-      await localParticipant.setMicrophoneEnabled(enabled)
-      setMicEnabled(enabled)
-    } catch (error) {
-      console.error('Failed to toggle microphone:', error)
-    }
-  }
-
-  const handleCameraToggle = async (enabled: boolean) => {
-    if (!localParticipant) return
-    try {
-      await localParticipant.setCameraEnabled(enabled)
-      setCameraEnabled(enabled)
-    } catch (error) {
-      console.error('Failed to toggle camera:', error)
-    }
-  }
-
-  const handleScreenShareToggle = async (enabled: boolean) => {
-    if (!localParticipant) return
-    try {
-      if (enabled) {
-        await localParticipant.setScreenShareEnabled(true, {
-          audio: true,
-          selfBrowserSurface: 'include',
-        })
-      } else {
-        await localParticipant.setScreenShareEnabled(false)
-      }
-      setScreenShareEnabled(enabled)
-    } catch (error) {
-      console.error('Failed to toggle screen share:', error)
-    }
-  }
+  const handleMicrophoneToggle = mediaControls.toggleMicrophone
+  const handleCameraToggle = mediaControls.toggleCamera
+  const handleScreenShareToggle = mediaControls.toggleScreenShare
 
   const handleLeave = () => {
     isUserLeavingRef.current = true
@@ -348,9 +314,9 @@ function CallRoomContentInner({
         } : null,
       })
 
-      setMicEnabled(micEnabled)
-      setCameraEnabled(camEnabled)
-      setScreenShareEnabled(screenShareEnabled)
+      mediaControls.setMicEnabled(micEnabled)
+      mediaControls.setCameraEnabled(camEnabled)
+      mediaControls.setScreenShareEnabled(screenShareEnabled)
     }
 
     updateStates()
@@ -371,7 +337,7 @@ function CallRoomContentInner({
       localParticipant.off('trackMuted', handleTrackMuted)
       localParticipant.off('trackUnmuted', handleTrackUnmuted)
     }
-  }, [localParticipant])
+  }, [localParticipant, mediaControls])
 
   if (!room) {
     return (
@@ -403,9 +369,9 @@ function CallRoomContentInner({
           onCameraToggle={handleCameraToggle}
           onScreenShareToggle={handleScreenShareToggle}
           onLeave={handleLeave}
-          microphoneEnabled={micEnabled}
-          cameraEnabled={cameraEnabled}
-          screenShareEnabled={screenShareEnabled}
+          microphoneEnabled={mediaControls.micEnabled}
+          cameraEnabled={mediaControls.cameraEnabled}
+          screenShareEnabled={mediaControls.screenShareEnabled}
         />
       </div>
       <TranscriptSidebar sessionSlug={roomSlug} />

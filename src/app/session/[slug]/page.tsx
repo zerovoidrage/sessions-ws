@@ -9,9 +9,12 @@ import { TranscriptProvider, useTranscriptContext } from '@/contexts/TranscriptC
 import { useLocalParticipantTranscription } from '@/hooks/useLocalParticipantTranscription'
 import { useRoom } from '@/hooks/useRoom'
 import { useParticipants } from '@/hooks/useParticipants'
+import { useMediaControls } from '@/hooks/useMediaControls'
 import { VideoGrid } from '@/shared/ui/video-grid'
 import { ControlBar } from '@/shared/ui/control-bar'
 import { GuestJoinGate } from '@/shared/ui/guest-join-gate/GuestJoinGate'
+import { Button } from '@/shared/ui/button'
+import { cn } from '@/lib/utils'
 
 interface TokenResponse {
   token: string
@@ -39,6 +42,8 @@ export default function SessionPage() {
   const [data, setData] = useState<TokenResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [guest, setGuest] = useState<{ identity: string; displayName: string } | null>(null)
+  const fetchTokenRef = useRef<Promise<void> | null>(null) // Защита от повторных вызовов
+  const hasFetchedRef = useRef(false) // Флаг, что токен уже был запрошен
 
   const isAuthenticated = !!session?.user
 
@@ -54,6 +59,11 @@ export default function SessionPage() {
       return
     }
 
+    // Если токен уже получен - не запрашиваем снова
+    if (data || hasFetchedRef.current) {
+      return
+    }
+
     // Если не авторизован и нет guest данных - показываем GuestJoinGate (через return ниже)
     if (status === 'unauthenticated' && !guest) {
       return
@@ -61,21 +71,31 @@ export default function SessionPage() {
 
     // Если авторизован
     if (isAuthenticated) {
-    const userDisplayName = session?.user?.displayName || ''
+      const userDisplayName = session?.user?.displayName || ''
 
-    if (!userDisplayName) {
-      setError('Display name is required. Please complete onboarding first.')
-      return
-    }
+      if (!userDisplayName) {
+        setError('Display name is required. Please complete onboarding first.')
+        return
+      }
 
-    // Автоматически запрашиваем токен с displayName из сессии
-    fetchToken(userDisplayName)
+      // Защита от повторных вызовов: если уже идет запрос - пропускаем
+      if (!fetchTokenRef.current) {
+        hasFetchedRef.current = true
+        fetchTokenRef.current = fetchToken(userDisplayName).finally(() => {
+          fetchTokenRef.current = null
+        })
+      }
       return
     }
 
     // Если гость
     if (guest) {
-      fetchToken(guest.displayName, guest.identity)
+      if (!fetchTokenRef.current) {
+        hasFetchedRef.current = true
+        fetchTokenRef.current = fetchToken(guest.displayName, guest.identity).finally(() => {
+          fetchTokenRef.current = null
+        })
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slug, session?.user?.displayName, status, guest, isAuthenticated])
@@ -98,12 +118,28 @@ export default function SessionPage() {
           setError('Session not found')
           return
         }
+        if (res.status === 403) {
+          setError('This session has ended')
+          return
+        }
+        if (res.status === 429) {
+          const retryAfter = res.headers.get('Retry-After')
+          const errorMsg = retryAfter 
+            ? `Too many requests. Please wait ${Math.ceil(Number(retryAfter))} seconds and refresh the page.`
+            : 'Too many requests. Please wait a moment and refresh the page.'
+          setError(errorMsg)
+          return
+        }
         throw new Error('Failed to fetch token')
       }
       const json = (await res.json()) as TokenResponse
       setData(json)
     } catch (err) {
       console.error(err)
+      if (err instanceof Error && err.message.includes('Failed to fetch token')) {
+        // Уже обработано выше
+        return
+      }
       setError('Error while connecting to the session')
     }
   }
@@ -129,14 +165,13 @@ export default function SessionPage() {
   if (error) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-surface-900 text-white-900">
-        <div className="text-center">
-          <p className="mb-4">{error}</p>
-          <button
-            onClick={() => router.push('/sessions')}
-            className="rounded-full px-4 py-2 bg-white text-black text-sm"
-          >
-            Back to sessions
-          </button>
+        <div className="flex flex-col items-center gap-4">
+          <p className="text-white-700">{error}</p>
+          <div className="fixed bottom-0 left-0 right-0 flex justify-center pb-8">
+            <Button onClick={() => router.push('/sessions')} variant="primary" size="lg">
+              back to sessions
+            </Button>
+          </div>
         </div>
       </div>
     )
@@ -145,7 +180,7 @@ export default function SessionPage() {
   if (!data) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-surface-900 text-white-900">
-        <p className="text-sm text-white-700">Connecting to the session...</p>
+        <p className="text-white-700">Connecting...</p>
       </div>
     )
   }
@@ -191,11 +226,8 @@ function SessionContent({
   const { room, isConnected, connectionState } = useRoom(token, serverUrl)
   const { localParticipant, remoteParticipants } = useParticipants(room)
   
-  // Инициализируем начальное состояние микрофона - по умолчанию микрофон включен в LiveKit
-  // Поэтому начальное значение должно быть true (включен), но это обновится через useEffect
-  const [micEnabled, setMicEnabled] = useState(true) // По умолчанию микрофон включен
-  const [cameraEnabled, setCameraEnabled] = useState(false)
-  const [screenShareEnabled, setScreenShareEnabled] = useState(false)
+  // Используем общий хук для управления медиа
+  const mediaControls = useMediaControls({ localParticipant })
   const participantJoinedRef = useRef(false) // Флаг, чтобы вызвать join только один раз
   
   // Обертываем контент в TranscriptProvider для изоляции транскрипции
@@ -209,12 +241,7 @@ function SessionContent({
         connectionState={connectionState}
         localParticipant={localParticipant}
         remoteParticipants={remoteParticipants}
-        micEnabled={micEnabled}
-        setMicEnabled={setMicEnabled}
-        cameraEnabled={cameraEnabled}
-        setCameraEnabled={setCameraEnabled}
-        screenShareEnabled={screenShareEnabled}
-        setScreenShareEnabled={setScreenShareEnabled}
+        mediaControls={mediaControls}
         participantJoinedRef={participantJoinedRef}
         transcriptionToken={transcriptionToken}
         sessionCreatedByUserId={sessionCreatedByUserId}
@@ -234,12 +261,7 @@ function SessionContentInner({
   connectionState,
   localParticipant,
   remoteParticipants,
-  micEnabled,
-  setMicEnabled,
-  cameraEnabled,
-  setCameraEnabled,
-  screenShareEnabled,
-  setScreenShareEnabled,
+  mediaControls,
   participantJoinedRef,
   transcriptionToken,
   sessionCreatedByUserId,
@@ -254,12 +276,7 @@ function SessionContentInner({
   connectionState: ConnectionState
   localParticipant: LocalParticipant | null
   remoteParticipants: RemoteParticipant[]
-  micEnabled: boolean
-  setMicEnabled: (enabled: boolean) => void
-  cameraEnabled: boolean
-  setCameraEnabled: (enabled: boolean) => void
-  screenShareEnabled: boolean
-  setScreenShareEnabled: (enabled: boolean) => void
+  mediaControls: ReturnType<typeof useMediaControls>
   participantJoinedRef: React.MutableRefObject<boolean>
   transcriptionToken?: string
   sessionCreatedByUserId?: string | null
@@ -267,7 +284,6 @@ function SessionContentInner({
   identity: string
   displayName: string
 }) {
-
   // Создание участника в БД при подключении к комнате
   useEffect(() => {
     if (!room || !isConnected || connectionState !== ConnectionState.Connected || participantJoinedRef.current) {
@@ -556,82 +572,10 @@ function SessionContentInner({
   // Флаг для отслеживания, покинул ли пользователь сессию сам
   const isUserLeavingRef = useRef(false)
 
-  const handleMicrophoneToggle = async (enabled: boolean) => {
-    if (!localParticipant) {
-      console.warn('[SessionContent] handleMicrophoneToggle: no localParticipant')
-      return
-    }
-
-    const currentState = micEnabled
-    console.log('[SessionContent] handleMicrophoneToggle called', {
-      requested: enabled,
-      currentUIState: currentState,
-      currentMicPub: localParticipant.getTrackPublication(Track.Source.Microphone)?.isMuted,
-    })
-    
-    // Оптимистичное обновление UI - сразу обновляем состояние для мгновенной реакции кнопки
-    setMicEnabled(enabled)
-    
-    try {
-      await localParticipant.setMicrophoneEnabled(enabled)
-      
-      // Даем событиям LiveKit время прийти (100ms), затем проверяем реальное состояние
-      // Это нужно, чтобы UI синхронизировался с реальным состоянием после переключения
-      setTimeout(() => {
-        const micPub = localParticipant?.getTrackPublication(Track.Source.Microphone)
-      if (micPub) {
-          const actualEnabled = !micPub.isMuted
-          console.log('[SessionContent] Microphone state sync after toggle', {
-            requested: enabled,
-            actual: actualEnabled,
-            isMuted: micPub.isMuted,
-          })
-          // Обновляем только если состояние отличается от запрошенного
-          // (чтобы не конфликтовать с событиями LiveKit)
-          if (actualEnabled !== enabled) {
-            setMicEnabled(actualEnabled)
-      }
-        }
-      }, 100)
-    } catch (error) {
-      console.error('Failed to toggle microphone:', error)
-      
-      // При ошибке откатываем к реальному состоянию
-      const micPub = localParticipant.getTrackPublication(Track.Source.Microphone)
-      if (micPub) {
-        setMicEnabled(!micPub.isMuted)
-      } else {
-        setMicEnabled(false)
-      }
-    }
-  }
-
-  const handleCameraToggle = async (enabled: boolean) => {
-    if (!localParticipant) return
-    try {
-      await localParticipant.setCameraEnabled(enabled)
-      setCameraEnabled(enabled)
-    } catch (error) {
-      console.error('Failed to toggle camera:', error)
-    }
-  }
-
-  const handleScreenShareToggle = async (enabled: boolean) => {
-    if (!localParticipant) return
-    try {
-      if (enabled) {
-        await localParticipant.setScreenShareEnabled(true, {
-          audio: true,
-          selfBrowserSurface: 'include',
-        })
-      } else {
-        await localParticipant.setScreenShareEnabled(false)
-      }
-      setScreenShareEnabled(enabled)
-    } catch (error) {
-      console.error('Failed to toggle screen share:', error)
-    }
-  }
+  // Используем функции из useMediaControls
+  const handleMicrophoneToggle = mediaControls.toggleMicrophone
+  const handleCameraToggle = mediaControls.toggleCamera
+  const handleScreenShareToggle = mediaControls.toggleScreenShare
 
   const handleLeave = () => {
     isUserLeavingRef.current = true
@@ -641,12 +585,43 @@ function SessionContentInner({
     router.push('/sessions')
   }
 
+  const handleEndForEveryone = async () => {
+    if (!confirm('Are you sure you want to end this session for everyone?')) {
+      return
+    }
+
+    try {
+      const res = await fetch(`/api/sessions/${sessionSlug}/end`, {
+        method: 'POST',
+      })
+
+      if (!res.ok) {
+        if (res.status === 403) {
+          alert('Only the session creator can end the session')
+          return
+        }
+        throw new Error('Failed to end session')
+      }
+
+      // Отключаем всех от комнаты и перенаправляем
+      if (room) {
+        room.disconnect()
+      }
+      router.push('/sessions')
+    } catch (error) {
+      console.error('Error ending session:', error)
+      alert('Failed to end session. Please try again.')
+    }
+  }
+
+  const isCreator = sessionCreatedByUserId === currentUserId
+
   // Обновляем состояние кнопок на основе реального состояния треков
   useEffect(() => {
     if (!localParticipant) {
       // Если localParticipant еще нет, устанавливаем начальное состояние
       // По умолчанию в LiveKit микрофон включен при подключении
-      setMicEnabled(true)
+      mediaControls.setMicEnabled(true)
       return
     }
 
@@ -677,9 +652,9 @@ function SessionContentInner({
         } : null,
       })
 
-      setMicEnabled(micEnabled)
-      setCameraEnabled(camEnabled)
-      setScreenShareEnabled(screenShareEnabled)
+      mediaControls.setMicEnabled(micEnabled)
+      mediaControls.setCameraEnabled(camEnabled)
+      mediaControls.setScreenShareEnabled(screenShareEnabled)
     }
 
     // Обновляем состояние сразу при появлении localParticipant
@@ -701,7 +676,7 @@ function SessionContentInner({
       localParticipant.off('trackMuted', handleTrackMuted)
       localParticipant.off('trackUnmuted', handleTrackUnmuted)
     }
-  }, [localParticipant])
+  }, [localParticipant, mediaControls])
 
   if (!room) {
     return (
@@ -733,9 +708,11 @@ function SessionContentInner({
           onCameraToggle={handleCameraToggle}
           onScreenShareToggle={handleScreenShareToggle}
           onLeave={handleLeave}
-          microphoneEnabled={micEnabled}
-          cameraEnabled={cameraEnabled}
-          screenShareEnabled={screenShareEnabled}
+          onEndForEveryone={handleEndForEveryone}
+          microphoneEnabled={mediaControls.micEnabled}
+          cameraEnabled={mediaControls.cameraEnabled}
+          screenShareEnabled={mediaControls.screenShareEnabled}
+          isCreator={isCreator}
         />
       </div>
       <TranscriptSidebar sessionSlug={sessionSlug} />

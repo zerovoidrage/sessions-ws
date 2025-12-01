@@ -10,23 +10,19 @@ interface Params {
 export async function DELETE(req: Request, { params }: Params) {
   try {
     const user = await getCurrentUser()
-    if (!user) {
-      return new NextResponse('UNAUTHORIZED', { status: 401 })
-    }
-
     const { slug } = await params
+
     await deleteSessionEndpoint(user, slug)
 
     return NextResponse.json({ success: true })
   } catch (error) {
-    if (error instanceof Error && error.message === 'UNAUTHORIZED') {
-      return new NextResponse('UNAUTHORIZED', { status: 401 })
-    }
-    if (error instanceof Error && error.message.includes('FORBIDDEN')) {
-      return new NextResponse('FORBIDDEN', { status: 403 })
-    }
-    if (error instanceof Error && error.message.includes('NOT_FOUND')) {
-      return new NextResponse('NOT_FOUND', { status: 404 })
+    if (error instanceof Error) {
+      if (error.message.includes('UNAUTHORIZED')) {
+        return new NextResponse('UNAUTHORIZED', { status: 401 })
+      }
+      if (error.message.includes('NOT_FOUND')) {
+        return new NextResponse('Session not found', { status: 404 })
+      }
     }
     console.error('Error deleting session:', error)
     return new NextResponse('Failed to delete session', { status: 500 })

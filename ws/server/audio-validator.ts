@@ -118,3 +118,10 @@ export function cleanupClientTracker(clientId: string): void {
   chunkTrackers.delete(clientId)
 }
 
+/**
+ * Очищает все трекеры (для тестов).
+ */
+export function clearAllTrackers(): void {
+  chunkTrackers.clear()
+}
+

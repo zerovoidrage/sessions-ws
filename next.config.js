@@ -5,16 +5,6 @@ const { withSentryConfig } = require('@sentry/nextjs')
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  // Sentry опции
-  sentry: {
-    // Отключаем автозагрузку Sentry в dev (можно включать для тестирования)
-    disableServerWebpackPlugin: process.env.NODE_ENV !== 'production',
-    disableClientWebpackPlugin: process.env.NODE_ENV !== 'production',
-    // Скрываем source maps для production (опционально, для безопасности)
-    hideSourceMaps: true,
-    // Ширина путей для source maps (опционально)
-    widenClientFileUpload: true,
-  },
 }
 
 // Оборачиваем конфиг в Sentry только если DSN настроен
@@ -27,6 +17,13 @@ module.exports = withSentry(nextConfig, {
   silent: true,
   org: process.env.SENTRY_ORG,
   project: process.env.SENTRY_PROJECT,
+  // Отключаем автозагрузку Sentry в dev (можно включать для тестирования)
+  disableServerWebpackPlugin: process.env.NODE_ENV !== 'production',
+  disableClientWebpackPlugin: process.env.NODE_ENV !== 'production',
+  // Скрываем source maps для production (опционально, для безопасности)
+  hideSourceMaps: true,
+  // Ширина путей для source maps (опционально)
+  widenClientFileUpload: true,
 })
 
 

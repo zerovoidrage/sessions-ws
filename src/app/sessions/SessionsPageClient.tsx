@@ -86,12 +86,17 @@ export function SessionsPageClient({
             id: string
             slug: string
             title: string | null
+            status: string
             createdAt: string
+            startedAt: string | null
             endedAt: string | null
+            lastActivityAt: string | null
           }) => ({
             ...session,
             createdAt: session.createdAt ? new Date(session.createdAt) : new Date(),
+            startedAt: session.startedAt ? new Date(session.startedAt) : null,
             endedAt: session.endedAt ? new Date(session.endedAt) : null,
+            lastActivityAt: session.lastActivityAt ? new Date(session.lastActivityAt) : null,
           }))
           setSessions(sessions)
         }
@@ -370,7 +375,7 @@ export function SessionsPageClient({
                 onClick={() => router.push(`/session/${session.slug}`)}
                 className="text-white-900 hover:opacity-60 transition-opacity cursor-pointer"
               >
-                Session {session.title || session.slug}
+                Session {session.title || session.slug} <span className="text-white-600 lowercase">({session.status.toLowerCase()})</span>
               </button>
             ))}
           </div>

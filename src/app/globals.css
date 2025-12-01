@@ -42,6 +42,10 @@
   .animate-blink {
     animation: blink 1s infinite;
   }
+
+  .animate-connecting-dot {
+    animation: connectingDots 1.5s ease-in-out infinite;
+  }
 }
 
 @keyframes slideUpFadeIn {
@@ -72,5 +76,17 @@
   }
   51%, 100% {
     opacity: 0;
+  }
+}
+
+@keyframes connectingDots {
+  0%, 20% {
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 1;
+  }
+  80%, 100% {
+    opacity: 0.3;
   }
 }

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { getCurrentUser } from '@/modules/core/identity/application/getCurrentUser'
 import { getProfileEndpoint, updateProfileEndpoint } from '@/modules/core/identity/api'
+import { withRateLimit, RATE_LIMIT_CONFIGS } from '@/lib/rate-limit'
 
 // GET /api/identity/profile
 export async function GET() {
@@ -22,6 +23,12 @@ export async function GET() {
 
 // PATCH /api/identity/profile
 export async function PATCH(req: Request) {
+  // Rate limiting для обновления профиля
+  const rateLimitResponse = await withRateLimit(RATE_LIMIT_CONFIGS.update)(req)
+  if (rateLimitResponse) {
+    return rateLimitResponse
+  }
+
   try {
     const user = await getCurrentUser()
     if (!user) {

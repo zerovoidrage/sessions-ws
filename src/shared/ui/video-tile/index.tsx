@@ -110,8 +110,8 @@ function VideoTileComponent({
           className="w-full h-full object-cover object-center"
         />
       ) : (
-        <div className="w-full h-full flex items-center justify-center bg-onsurface-800 min-h-[200px]">
-        </div>
+        // Не показываем placeholder - только пустой фон
+        null
       )}
       {participantName && (
         <div className="absolute bottom-2 left-2">

@@ -946,7 +946,15 @@ export function useLocalParticipantTranscription({
             clearInterval(healthCheckInterval)
           })
         } catch (error) {
-          console.error('[Transcription] Failed to connect WebSocket after retries:', error)
+          console.error('[Transcription] Failed to connect WebSocket after retries:', {
+            error,
+            errorMessage: error instanceof Error ? error.message : String(error),
+            errorStack: error instanceof Error ? error.stack : undefined,
+            wsUrl: wsUrl.replace(/token=[^&]+/, 'token=***'),
+            hasTranscriptionToken: !!transcriptionToken,
+          })
+          wsReadyRef.current = false
+          wsRef.current = null
           // Не пробрасываем ошибку дальше, чтобы не ломать транскрипцию
           // Пользователь может попробовать перезапустить транскрипцию вручную
           return

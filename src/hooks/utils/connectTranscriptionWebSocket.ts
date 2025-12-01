@@ -51,12 +51,23 @@ export async function connectTranscriptionWebSocket(
 
         ws.onerror = (error) => {
           clearTimeout(timeout)
-          console.error(`[WebSocket] Connection error (attempt ${attempt + 1}):`, error)
-          reject(new Error(`WebSocket connection error: ${error}`))
+          console.error(`[WebSocket] Connection error (attempt ${attempt + 1}):`, {
+            error,
+            errorType: error?.type || 'unknown',
+            url: wsUrl,
+            readyState: ws.readyState,
+          })
+          reject(new Error(`WebSocket connection error: ${error?.type || 'unknown error'}`))
         }
 
         ws.onclose = (event) => {
           clearTimeout(timeout)
+          console.error(`[WebSocket] Connection closed (attempt ${attempt + 1}):`, {
+            code: event.code,
+            reason: event.reason || 'no reason',
+            wasClean: event.wasClean,
+            url: wsUrl,
+          })
           // Если закрылось до onopen, это ошибка
           if (event.code !== 1000) {
             reject(new Error(`WebSocket closed unexpectedly: code=${event.code}, reason=${event.reason || 'unknown'}`))

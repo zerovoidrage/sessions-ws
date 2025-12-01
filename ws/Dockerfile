@@ -3,8 +3,9 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-# Устанавливаем OpenSSL и необходимые библиотеки для Prisma
-RUN apk add --no-cache openssl openssl-dev libc6-compat
+# Устанавливаем OpenSSL для Prisma (Alpine 3.22 использует OpenSSL 3.x)
+# Prisma может работать с OpenSSL 3.x, но если нужна совместимость с 1.1, используем openssl
+RUN apk add --no-cache openssl libc6-compat
 
 # Копируем package.json для установки зависимостей
 COPY package.json ./

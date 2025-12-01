@@ -2,9 +2,8 @@ import { WebSocket } from 'ws'
 import { IncomingMessage } from 'http'
 import jwt from 'jsonwebtoken'
 import dotenv from 'dotenv'
-import { createGladiaBridge, type TranscriptEvent } from './gladia-bridge'
-// Import path is relative to ws/server
-import { appendTranscriptChunk } from '../../src/modules/core/sessions/infra/transcription/appendTranscriptChunk'
+import { createGladiaBridge, type TranscriptEvent } from './gladia-bridge.js'
+import { appendTranscriptChunk } from './append-transcript-chunk.js'
 import {
   incrementConnections,
   decrementConnections,

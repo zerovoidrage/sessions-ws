@@ -1,9 +1,10 @@
 import http from 'http'
 import { WebSocketServer } from 'ws'
-import { handleClientConnection } from './client-connection'
-import { getMetrics } from './metrics'
+import { handleClientConnection } from './client-connection.js'
+import { getMetrics } from './metrics.js'
 
-const PORT = process.env.WS_PORT || 3001
+// Render использует переменную PORT, но можем использовать WS_PORT как fallback
+const PORT = process.env.PORT || process.env.WS_PORT || 3001
 
 // Создаем HTTP сервер для WebSocket upgrade
 const server = http.createServer()

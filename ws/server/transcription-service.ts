@@ -10,8 +10,8 @@
  */
 
 import { AccessToken } from 'livekit-server-sdk'
-import { createGladiaBridge, type TranscriptEvent } from './gladia-bridge'
-import { appendTranscriptChunk } from '../../src/modules/core/sessions/infra/transcription/appendTranscriptChunk'
+import { createGladiaBridge, type TranscriptEvent } from './gladia-bridge.js'
+import { appendTranscriptChunk } from './append-transcript-chunk.js'
 import dotenv from 'dotenv'
 
 dotenv.config()

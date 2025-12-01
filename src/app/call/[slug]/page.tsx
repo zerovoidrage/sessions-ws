@@ -368,7 +368,7 @@ function CallRoomContent({
       <div className="flex-1 min-w-0 relative">
         <VideoGrid 
           remoteParticipants={remoteParticipants}
-          localParticipant={localParticipant || undefined}
+          localParticipant={localParticipant}
         />
       </div>
       <div className="p-4 pb-8">

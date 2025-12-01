@@ -175,11 +175,11 @@ function CallRoomContent({
 
   // Транскрипция
   const { start, isActive, setOnTranscriptCallback } = useLocalParticipantTranscription({ 
-    roomSlug,
+    sessionSlug: roomSlug,
     room,
     localParticipant,
   })
-  const { addMessage, messages } = useTranscriptStream({ roomSlug, room })
+  const { addMessage, messages } = useTranscriptStream({ sessionSlug: roomSlug, room })
 
   // Автоматически включаем только микрофон при подключении (камера выключена по умолчанию)
   useEffect(() => {
@@ -382,7 +382,7 @@ function CallRoomContent({
           screenShareEnabled={screenShareEnabled}
         />
       </div>
-      <TranscriptSidebar roomSlug={roomSlug} messages={messages} />
+      <TranscriptSidebar sessionSlug={roomSlug} messages={messages} />
     </div>
   )
 }

@@ -3,6 +3,9 @@ FROM node:20-alpine
 
 WORKDIR /app
 
+# Устанавливаем OpenSSL для Prisma (требуется для работы с PostgreSQL)
+RUN apk add --no-cache openssl1.1-compat
+
 # Копируем package.json для установки зависимостей
 COPY package.json ./
 

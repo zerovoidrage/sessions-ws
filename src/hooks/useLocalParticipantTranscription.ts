@@ -658,15 +658,78 @@ export function useLocalParticipantTranscription({
         const source = audioContext.createMediaStreamSource(mediaStream)
         sourceRef.current = source
 
+        // ПОДКЛЮЧАЕМ WEBSOCKET ПЕРВЫМ, чтобы он был готов к моменту, когда AudioWorklet начнет отправлять данные
+        // Это исключает пропуск первых аудио-чанков
+        if (!transcriptionToken) {
+          console.error('[Transcription] Missing transcriptionToken, cannot connect to WebSocket')
+          throw new Error('Transcription token is required')
+        }
+        
+        // Определяем протокол и хост для WebSocket
+        let wsHost = process.env.NEXT_PUBLIC_WS_HOST || 'localhost'
+        wsHost = wsHost.replace(/^https?:\/\//, '').replace(/\/$/, '')
+        
+        const isProductionHost = wsHost !== 'localhost' && !wsHost.startsWith('127.0.0.1') && !wsHost.startsWith('192.168.')
+        const isHttps = typeof window !== 'undefined' && window.location.protocol === 'https:'
+        const isProduction = isProductionHost || isHttps
+        const wsProtocol = isProduction ? 'wss' : 'ws'
+        
+        const wsPort = process.env.NEXT_PUBLIC_WS_PORT
+        let portSuffix = ''
+        if (wsPort) {
+          portSuffix = `:${wsPort}`
+        } else if (!isProduction) {
+          portSuffix = ':3001'
+        }
+        
+        const wsUrl = `${wsProtocol}://${wsHost}${portSuffix}/api/realtime/transcribe?token=${encodeURIComponent(transcriptionToken)}`
+        
+        console.log('[Transcription] WebSocket URL constructed', {
+          wsHost,
+          wsProtocol,
+          wsPort,
+          portSuffix,
+          isProduction,
+          isProductionHost,
+          isHttps,
+          wsUrl: wsUrl.replace(/token=[^&]+/, 'token=***'),
+        })
+
+        // Подключаемся к WebSocket ДО создания AudioWorklet
+        let ws: WebSocket
+        try {
+          ws = await connectTranscriptionWebSocket(wsUrl, {
+            maxRetries: 5,
+            baseDelayMs: 1000,
+            timeoutMs: 10000,
+          })
+          wsRef.current = ws
+          wsReadyRef.current = true
+          console.log('[Transcription] ✅ WebSocket connected (before AudioWorklet creation)', {
+            wsUrl: wsUrl.replace(/token=[^&]+/, 'token=***'),
+            readyState: ws.readyState,
+          })
+        } catch (error) {
+          console.error('[Transcription] Failed to connect WebSocket before AudioWorklet:', {
+            error,
+            errorMessage: error instanceof Error ? error.message : String(error),
+            wsUrl: wsUrl.replace(/token=[^&]+/, 'token=***'),
+            hasTranscriptionToken: !!transcriptionToken,
+          })
+          wsReadyRef.current = false
+          wsRef.current = null
+          throw error // Пробрасываем ошибку, так как без WebSocket транскрипция невозможна
+        }
+
         // Функция для конвертации Float32Array в Int16Array (PCM16) и отправки в WebSocket
         // ВАЖНО: Не замыкаемся на localParticipant - используем только ref для актуального состояния
         const convertAndSendAudio = (float32Data: Float32Array) => {
           // 1) WebSocket должен быть готов
           const wsState = wsRef.current?.readyState
           if (!wsReadyRef.current || !wsRef.current || wsState !== WebSocket.OPEN) {
-            // Логируем только иногда, чтобы не спамить
-            if (audioChunkCountRef.current === 0 || audioChunkCountRef.current % 100 === 0) {
-              console.warn('[Transcription] ⚠️ WebSocket not ready, skipping audio', {
+            // Логируем только один раз при первом пропуске, чтобы не спамить консоль
+            if (audioChunkCountRef.current === 0) {
+              console.log('[Transcription] Waiting for WebSocket connection...', {
                 wsReady: wsReadyRef.current,
                 hasWs: !!wsRef.current,
                 wsState: wsState,
@@ -856,109 +919,36 @@ export function useLocalParticipantTranscription({
           throw new Error(`AudioWorklet not supported or failed to load: ${error}`)
         }
 
-        // Подключаем к WebSocket серверу с retry-логикой
-        // ВАЖНО: Используем JWT токен для авторизации вместо sessionSlug
-        // Это защищает WebSocket от несанкционированного доступа
-        if (!transcriptionToken) {
-          console.error('[Transcription] Missing transcriptionToken, cannot connect to WebSocket')
-          throw new Error('Transcription token is required')
-        }
-        
-        // Определяем протокол и хост для WebSocket
-        // Обрабатываем NEXT_PUBLIC_WS_HOST - может содержать https:// или быть просто хостом
-        let wsHost = process.env.NEXT_PUBLIC_WS_HOST || 'localhost'
-        // Убираем протокол из хоста, если он есть
-        wsHost = wsHost.replace(/^https?:\/\//, '').replace(/\/$/, '')
-        
-        // Определяем, используем ли мы production хост (не localhost)
-        const isProductionHost = wsHost !== 'localhost' && !wsHost.startsWith('127.0.0.1') && !wsHost.startsWith('192.168.')
-        // Проверяем протокол страницы (HTTPS означает production)
-        const isHttps = typeof window !== 'undefined' && window.location.protocol === 'https:'
-        // Используем WSS если хост production или страница HTTPS
-        const isProduction = isProductionHost || isHttps
-        const wsProtocol = isProduction ? 'wss' : 'ws'
-        
-        // Для Render может использоваться нестандартный порт (например, 10000)
-        // Если порт указан в NEXT_PUBLIC_WS_PORT - используем его
-        // Иначе для WSS (production) не указываем порт (используется стандартный 443)
-        // Для WS (dev) используем порт 3001 по умолчанию
-        const wsPort = process.env.NEXT_PUBLIC_WS_PORT
-        let portSuffix = ''
-        if (wsPort) {
-          // Если порт явно указан - используем его
-          portSuffix = `:${wsPort}`
-        } else if (!isProduction) {
-          // Только для dev (WS) используем дефолтный порт
-          portSuffix = ':3001'
-        }
-        // Для production (WSS) без явного порта - не добавляем порт (стандартный 443)
-        
-        const wsUrl = `${wsProtocol}://${wsHost}${portSuffix}/api/realtime/transcribe?token=${encodeURIComponent(transcriptionToken)}`
-        
-        console.log('[Transcription] WebSocket URL constructed', {
-          wsHost,
-          wsProtocol,
-          wsPort,
-          portSuffix,
-          isProduction,
-          isProductionHost,
-          isHttps,
-          wsUrl: wsUrl.replace(/token=[^&]+/, 'token=***'), // Скрываем токен в логах
+        // WebSocket уже подключен выше, теперь настраиваем обработчики
+        console.log('[Transcription] ✅ WebSocket ready, setting up message handlers', {
+          wsUrl: wsUrl.replace(/token=[^&]+/, 'token=***'),
+          readyState: ws.readyState,
         })
-
-        // Используем retry-функцию для подключения
-        let ws: WebSocket
-        try {
-          ws = await connectTranscriptionWebSocket(wsUrl, {
-            maxRetries: 5,
-            baseDelayMs: 1000,
-            timeoutMs: 10000,
-          })
-          wsRef.current = ws
-          wsReadyRef.current = true
-          console.log('[Transcription] ✅ WebSocket connected to Gladia server', {
-            wsUrl,
-            readyState: ws.readyState,
-          })
-          
-          // Периодически проверяем состояние WebSocket (каждые 5 секунд)
-          const healthCheckInterval = setInterval(() => {
-            if (wsRef.current) {
-              const state = wsRef.current.readyState
-              if (state !== WebSocket.OPEN) {
-                console.warn('[Transcription] ⚠️ WebSocket health check failed', {
-                  state,
-                  stateName: state === WebSocket.CONNECTING ? 'CONNECTING' :
-                            state === WebSocket.OPEN ? 'OPEN' :
-                            state === WebSocket.CLOSING ? 'CLOSING' :
-                            state === WebSocket.CLOSED ? 'CLOSED' : 'UNKNOWN',
-                })
-              } else {
-                console.log('[Transcription] ✅ WebSocket health check OK', {
-                  chunkCount: audioChunkCountRef.current,
-                })
-              }
+        
+        // Периодически проверяем состояние WebSocket (каждые 5 секунд)
+        const healthCheckInterval = setInterval(() => {
+          if (wsRef.current) {
+            const state = wsRef.current.readyState
+            if (state !== WebSocket.OPEN) {
+              console.warn('[Transcription] ⚠️ WebSocket health check failed', {
+                state,
+                stateName: state === WebSocket.CONNECTING ? 'CONNECTING' :
+                          state === WebSocket.OPEN ? 'OPEN' :
+                          state === WebSocket.CLOSING ? 'CLOSING' :
+                          state === WebSocket.CLOSED ? 'CLOSED' : 'UNKNOWN',
+              })
+            } else {
+              console.log('[Transcription] ✅ WebSocket health check OK', {
+                chunkCount: audioChunkCountRef.current,
+              })
             }
-          }, 5000)
-          
-          // Очищаем интервал при закрытии
-          ws.addEventListener('close', () => {
-            clearInterval(healthCheckInterval)
-          })
-        } catch (error) {
-          console.error('[Transcription] Failed to connect WebSocket after retries:', {
-            error,
-            errorMessage: error instanceof Error ? error.message : String(error),
-            errorStack: error instanceof Error ? error.stack : undefined,
-            wsUrl: wsUrl.replace(/token=[^&]+/, 'token=***'),
-            hasTranscriptionToken: !!transcriptionToken,
-          })
-          wsReadyRef.current = false
-          wsRef.current = null
-          // Не пробрасываем ошибку дальше, чтобы не ломать транскрипцию
-          // Пользователь может попробовать перезапустить транскрипцию вручную
-          return
-        }
+          }
+        }, 5000)
+        
+        // Очищаем интервал при закрытии
+        ws.addEventListener('close', () => {
+          clearInterval(healthCheckInterval)
+        })
 
         // Обработчик сообщений от сервера (определяем до onclose, чтобы можно было переиспользовать)
         const handleMessage = (event: MessageEvent) => {

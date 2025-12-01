@@ -857,9 +857,6 @@ export function useLocalParticipantTranscription({
         }
 
         // Подключаем к WebSocket серверу с retry-логикой
-        const wsPort = process.env.NEXT_PUBLIC_WS_PORT || '3001'
-        const wsHost = process.env.NEXT_PUBLIC_WS_HOST || 'localhost'
-        
         // ВАЖНО: Используем JWT токен для авторизации вместо sessionSlug
         // Это защищает WebSocket от несанкционированного доступа
         if (!transcriptionToken) {
@@ -867,7 +864,47 @@ export function useLocalParticipantTranscription({
           throw new Error('Transcription token is required')
         }
         
-        const wsUrl = `ws://${wsHost}:${wsPort}/api/realtime/transcribe?token=${encodeURIComponent(transcriptionToken)}`
+        // Определяем протокол и хост для WebSocket
+        // Обрабатываем NEXT_PUBLIC_WS_HOST - может содержать https:// или быть просто хостом
+        let wsHost = process.env.NEXT_PUBLIC_WS_HOST || 'localhost'
+        // Убираем протокол из хоста, если он есть
+        wsHost = wsHost.replace(/^https?:\/\//, '').replace(/\/$/, '')
+        
+        // Определяем, используем ли мы production хост (не localhost)
+        const isProductionHost = wsHost !== 'localhost' && !wsHost.startsWith('127.0.0.1') && !wsHost.startsWith('192.168.')
+        // Проверяем протокол страницы (HTTPS означает production)
+        const isHttps = typeof window !== 'undefined' && window.location.protocol === 'https:'
+        // Используем WSS если хост production или страница HTTPS
+        const isProduction = isProductionHost || isHttps
+        const wsProtocol = isProduction ? 'wss' : 'ws'
+        
+        // Для Render может использоваться нестандартный порт (например, 10000)
+        // Если порт указан в NEXT_PUBLIC_WS_PORT - используем его
+        // Иначе для WSS (production) не указываем порт (используется стандартный 443)
+        // Для WS (dev) используем порт 3001 по умолчанию
+        const wsPort = process.env.NEXT_PUBLIC_WS_PORT
+        let portSuffix = ''
+        if (wsPort) {
+          // Если порт явно указан - используем его
+          portSuffix = `:${wsPort}`
+        } else if (!isProduction) {
+          // Только для dev (WS) используем дефолтный порт
+          portSuffix = ':3001'
+        }
+        // Для production (WSS) без явного порта - не добавляем порт (стандартный 443)
+        
+        const wsUrl = `${wsProtocol}://${wsHost}${portSuffix}/api/realtime/transcribe?token=${encodeURIComponent(transcriptionToken)}`
+        
+        console.log('[Transcription] WebSocket URL constructed', {
+          wsHost,
+          wsProtocol,
+          wsPort,
+          portSuffix,
+          isProduction,
+          isProductionHost,
+          isHttps,
+          wsUrl: wsUrl.replace(/token=[^&]+/, 'token=***'), // Скрываем токен в логах
+        })
 
         // Используем retry-функцию для подключения
         let ws: WebSocket
@@ -1028,10 +1065,24 @@ export function useLocalParticipantTranscription({
             return
           }
           
-          // Создаем новый URL с актуальным transcriptionToken
-          const wsPort = process.env.NEXT_PUBLIC_WS_PORT || '3001'
-          const wsHost = process.env.NEXT_PUBLIC_WS_HOST || 'localhost'
-          const reconnectWsUrl = `ws://${wsHost}:${wsPort}/api/realtime/transcribe?token=${encodeURIComponent(transcriptionTokenRef.current)}`
+          // Создаем новый URL с актуальным transcriptionToken (используем ту же логику, что и в startTranscription)
+          let reconnectWsHost = process.env.NEXT_PUBLIC_WS_HOST || 'localhost'
+          reconnectWsHost = reconnectWsHost.replace(/^https?:\/\//, '').replace(/\/$/, '')
+          
+          const reconnectIsProductionHost = reconnectWsHost !== 'localhost' && !reconnectWsHost.startsWith('127.0.0.1') && !reconnectWsHost.startsWith('192.168.')
+          const reconnectIsHttps = typeof window !== 'undefined' && window.location.protocol === 'https:'
+          const reconnectIsProduction = reconnectIsProductionHost || reconnectIsHttps
+          const reconnectWsProtocol = reconnectIsProduction ? 'wss' : 'ws'
+          
+          const reconnectWsPort = process.env.NEXT_PUBLIC_WS_PORT
+          let reconnectPortSuffix = ''
+          if (reconnectWsPort) {
+            reconnectPortSuffix = `:${reconnectWsPort}`
+          } else if (!reconnectIsProduction) {
+            reconnectPortSuffix = ':3001'
+          }
+          
+          const reconnectWsUrl = `${reconnectWsProtocol}://${reconnectWsHost}${reconnectPortSuffix}/api/realtime/transcribe?token=${encodeURIComponent(transcriptionTokenRef.current)}`
           
           try {
             const newWs = await connectTranscriptionWebSocket(reconnectWsUrl, {

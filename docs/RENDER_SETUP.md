@@ -38,9 +38,10 @@
 - **Key:** `LIVEKIT_URL`
 - **Value:** URL LiveKit сервера (например, `wss://your-project.livekit.cloud`)
 
-### NextAuth (для JWT верификации)
-- **Key:** `NEXTAUTH_SECRET`
-- **Value:** тот же секрет, что используется в Vercel (для верификации JWT токенов)
+### JWT Secret для транскрипции
+- **Key:** `TRANSCRIPTION_JWT_SECRET`
+- **Value:** тот же секрет, что используется в Vercel (для верификации JWT токенов транскрипции)
+- ⚠️ **Важно:** Это должен быть тот же секрет, что и `TRANSCRIPTION_JWT_SECRET` в Vercel
 
 ### Node Environment
 - **Key:** `NODE_ENV`
@@ -77,26 +78,24 @@ GET https://your-ws-service.onrender.com/health
 
 ### В Vercel добавьте переменные окружения:
 
-1. **WebSocket Server URL:**
+1. **WebSocket Server Host:**
    - **Key:** `NEXT_PUBLIC_WS_HOST`
-   - **Value:** `your-ws-service.onrender.com` (без `https://`)
+   - **Value:** `sessions-ws.onrender.com` (БЕЗ `https://` и БЕЗ слеша в конце)
+   - ⚠️ **Важно:** Только доменное имя, без протокола
 
 2. **WebSocket Server Port:**
    - **Key:** `NEXT_PUBLIC_WS_PORT`
-   - **Value:** `443` (если используете HTTPS) или порт, который использует Render
+   - **Value:** `10000` (или не указывайте, если используете стандартный порт 443 для WSS)
+   - ⚠️ **Важно:** Для production (HTTPS/WSS) код автоматически использует WSS на стандартном порту 443
+   - Порт указывается только для dev-окружения (localhost)
 
-3. **WebSocket Protocol:**
-   - Обычно Render предоставляет HTTPS, поэтому используйте `wss://` в коде
+### Как работает автоматическое определение протокола:
 
-### Обновите код подключения в клиенте:
-
-В `src/hooks/utils/connectTranscriptionWebSocket.ts` используйте:
-
-```typescript
-const wsUrl = process.env.NEXT_PUBLIC_WS_HOST 
-  ? `wss://${process.env.NEXT_PUBLIC_WS_HOST}/api/realtime/transcribe?token=${token}`
-  : `ws://localhost:${process.env.NEXT_PUBLIC_WS_PORT || 3001}/api/realtime/transcribe?token=${token}`
-```
+Код в `src/hooks/useLocalParticipantTranscription.ts` автоматически:
+- Определяет, что мы в production (если `window.location.protocol === 'https:'`)
+- Использует `wss://` для HTTPS и `ws://` для HTTP
+- Для WSS не указывает порт (используется стандартный 443)
+- Для WS указывает порт из `NEXT_PUBLIC_WS_PORT` (по умолчанию 3001)
 
 ## 6. CORS (если нужно)
 

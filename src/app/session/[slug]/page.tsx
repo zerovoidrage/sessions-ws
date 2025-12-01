@@ -61,15 +61,15 @@ export default function SessionPage() {
 
     // Если авторизован
     if (isAuthenticated) {
-      const userDisplayName = session?.user?.displayName || ''
+    const userDisplayName = session?.user?.displayName || ''
 
-      if (!userDisplayName) {
-        setError('Display name is required. Please complete onboarding first.')
-        return
-      }
+    if (!userDisplayName) {
+      setError('Display name is required. Please complete onboarding first.')
+      return
+    }
 
-      // Автоматически запрашиваем токен с displayName из сессии
-      fetchToken(userDisplayName)
+    // Автоматически запрашиваем токен с displayName из сессии
+    fetchToken(userDisplayName)
       return
     }
 
@@ -501,10 +501,10 @@ function SessionContent({
       currentUIState: currentState,
       currentMicPub: localParticipant.getTrackPublication(Track.Source.Microphone)?.isMuted,
     })
-
+    
     // Оптимистичное обновление UI - сразу обновляем состояние для мгновенной реакции кнопки
     setMicEnabled(enabled)
-
+    
     try {
       await localParticipant.setMicrophoneEnabled(enabled)
       
@@ -512,7 +512,7 @@ function SessionContent({
       // Это нужно, чтобы UI синхронизировался с реальным состоянием после переключения
       setTimeout(() => {
         const micPub = localParticipant?.getTrackPublication(Track.Source.Microphone)
-        if (micPub) {
+      if (micPub) {
           const actualEnabled = !micPub.isMuted
           console.log('[SessionContent] Microphone state sync after toggle', {
             requested: enabled,
@@ -523,7 +523,7 @@ function SessionContent({
           // (чтобы не конфликтовать с событиями LiveKit)
           if (actualEnabled !== enabled) {
             setMicEnabled(actualEnabled)
-          }
+      }
         }
       }, 100)
     } catch (error) {

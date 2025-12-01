@@ -82,7 +82,13 @@ export function SessionsPageClient({
         if (res.ok) {
           const data = await res.json()
           // Конвертируем строки дат в объекты Date
-          const sessions = (data.sessions || []).map((session: any) => ({
+          const sessions = (data.sessions || []).map((session: {
+            id: string
+            slug: string
+            title: string | null
+            createdAt: string
+            endedAt: string | null
+          }) => ({
             ...session,
             createdAt: session.createdAt ? new Date(session.createdAt) : new Date(),
             endedAt: session.endedAt ? new Date(session.endedAt) : null,

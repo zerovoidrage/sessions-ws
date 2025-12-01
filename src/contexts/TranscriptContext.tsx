@@ -4,7 +4,7 @@
 'use client'
 
 import React, { createContext, useContext, useCallback, useRef, useState, useMemo } from 'react'
-import { Room } from 'livekit-client'
+import { Room, RemoteParticipant } from 'livekit-client'
 import type { TranscriptMessage } from '@/types/transcript'
 import type { TranscriptState, TranscriptBubbleState } from '@/types/transcript-state'
 import {
@@ -62,7 +62,7 @@ export function TranscriptProvider({ children, sessionSlug, room }: TranscriptPr
   React.useEffect(() => {
     if (!room) return
 
-    const handleData = (payload: Uint8Array, participant?: any) => {
+    const handleData = (payload: Uint8Array, participant?: RemoteParticipant) => {
       // LOCAL ECHO PROTECTION: игнорируем сообщения от локального участника
       const local = room?.localParticipant
       if (local && participant && participant.identity === local.identity) {

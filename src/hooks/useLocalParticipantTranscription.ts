@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Room, LocalParticipant, Track, ConnectionState } from 'livekit-client'
 import { connectTranscriptionWebSocket } from './utils/connectTranscriptionWebSocket'
+import type { TranscriptMessage } from '@/types/transcript'
 import { clientTranscriptionMetrics } from '@/modules/core/sessions/infra/transcription/transcription-metrics'
 import {
   isTranscriptionEnabledForSession,
@@ -48,7 +49,7 @@ export function useLocalParticipantTranscription({
   const transcriptionTokenRef = useRef<string | undefined>(transcriptionToken) // Сохраняем transcriptionToken для переподключения
   const isTranscriptionHostRef = useRef<boolean>(isTranscriptionHost) // Сохраняем флаг host для переподключения
 
-  const onTranscriptCallbackRef = useRef<((message: any) => void) | null>(null)
+  const onTranscriptCallbackRef = useRef<((message: TranscriptMessage) => void) | null>(null)
 
   // Синхронизируем refs при изменении
   useEffect(() => {
@@ -1275,7 +1276,7 @@ export function useLocalParticipantTranscription({
       setIsActive(false)
     },
     sendTranscriptFromServer,
-    setOnTranscriptCallback: (callback: ((message: any) => void) | null) => {
+    setOnTranscriptCallback: (callback: ((message: TranscriptMessage) => void) | null) => {
       onTranscriptCallbackRef.current = callback
     },
   }

@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import localFont from 'next/font/local'
 import './globals.css'
 import { Providers } from '@/components/providers/Providers'
+import { ErrorBoundary } from '@/shared/ui/error-boundary'
 
 const suisseIntl = localFont({
   src: [
@@ -49,7 +50,9 @@ export default function RootLayout({
   return (
     <html lang="en" className={suisseIntl.variable}>
       <body className="font-suisse-intl">
-        <Providers>{children}</Providers>
+        <ErrorBoundary>
+          <Providers>{children}</Providers>
+        </ErrorBoundary>
       </body>
     </html>
   )

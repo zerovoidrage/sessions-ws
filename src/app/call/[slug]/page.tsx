@@ -2,10 +2,10 @@
 
 import { useEffect, useState, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { Room, Track } from 'livekit-client'
+import { Room, Track, LocalParticipant, RemoteParticipant } from 'livekit-client'
 import { TranscriptSidebar } from '@/components/call/TranscriptSidebar'
+import { TranscriptProvider, useTranscriptContext } from '@/contexts/TranscriptContext'
 import { useLocalParticipantTranscription } from '@/hooks/useLocalParticipantTranscription'
-import { useTranscriptStream } from '@/hooks/useTranscriptStream'
 import { useRoom } from '@/hooks/useRoom'
 import { useParticipants } from '@/hooks/useParticipants'
 import { VideoGrid } from '@/shared/ui/video-grid'
@@ -168,10 +168,37 @@ function CallRoomContent({
   serverUrl: string
 }) {
   const { room, isConnected } = useRoom(token, serverUrl)
+  
+  return (
+    <TranscriptProvider sessionSlug={roomSlug} room={room}>
+      <CallRoomContentInner
+        roomSlug={roomSlug}
+        router={router}
+        room={room}
+        isConnected={isConnected}
+      />
+    </TranscriptProvider>
+  )
+}
+
+function CallRoomContentInner({
+  roomSlug,
+  router,
+  room,
+  isConnected,
+}: {
+  roomSlug: string
+  router: ReturnType<typeof useRouter>
+  room: Room | null
+  isConnected: boolean
+}) {
   const { localParticipant, remoteParticipants } = useParticipants(room)
   const [micEnabled, setMicEnabled] = useState(false)
   const [cameraEnabled, setCameraEnabled] = useState(false)
   const [screenShareEnabled, setScreenShareEnabled] = useState(false)
+
+  // Используем контекст транскрипции
+  const { addMessage } = useTranscriptContext()
 
   // Транскрипция
   const { start, isActive, setOnTranscriptCallback } = useLocalParticipantTranscription({ 
@@ -179,7 +206,6 @@ function CallRoomContent({
     room,
     localParticipant,
   })
-  const { addMessage, messages } = useTranscriptStream({ sessionSlug: roomSlug, room })
 
   // Автоматически включаем только микрофон при подключении (камера выключена по умолчанию)
   useEffect(() => {
@@ -382,7 +408,7 @@ function CallRoomContent({
           screenShareEnabled={screenShareEnabled}
         />
       </div>
-      <TranscriptSidebar sessionSlug={roomSlug} messages={messages} />
+      <TranscriptSidebar sessionSlug={roomSlug} />
     </div>
   )
 }

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, HTMLAttributes } from 'react'
+import { useEffect, useRef, HTMLAttributes, memo } from 'react'
 import { Track } from 'livekit-client'
 import { cn } from '@/lib/utils'
 
@@ -11,7 +11,7 @@ export interface VideoTileProps extends HTMLAttributes<HTMLDivElement> {
   isSpeaking?: boolean
 }
 
-export function VideoTile({
+function VideoTileComponent({
   track,
   participantName,
   isLocal = false,
@@ -121,4 +121,20 @@ export function VideoTile({
     </div>
   )
 }
+
+// Мемоизируем VideoTile для предотвращения ненужных ре-рендеров
+// Перерендерится только при изменении track, participantName, isLocal, isSpeaking
+export const VideoTile = memo(VideoTileComponent, (prevProps, nextProps) => {
+  // Сравниваем ключевые пропсы
+  if (prevProps.track?.sid !== nextProps.track?.sid) return false
+  if (prevProps.track?.isMuted !== nextProps.track?.isMuted) return false
+  if (prevProps.participantName !== nextProps.participantName) return false
+  if (prevProps.isLocal !== nextProps.isLocal) return false
+  if (prevProps.isSpeaking !== nextProps.isSpeaking) return false
+  if (prevProps.className !== nextProps.className) return false
+  
+  return true // Ре-рендер не нужен
+})
+
+VideoTile.displayName = 'VideoTile'
 

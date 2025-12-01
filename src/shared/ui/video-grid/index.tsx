@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, memo } from 'react'
 import { Track, Participant, RemoteParticipant, LocalParticipant } from 'livekit-client'
 import { VideoTile } from '../video-tile'
 import { cn } from '@/lib/utils'
@@ -11,7 +11,7 @@ export interface VideoGridProps {
   className?: string
 }
 
-export function VideoGrid({ localParticipant, remoteParticipants, className }: VideoGridProps) {
+function VideoGridComponent({ localParticipant, remoteParticipants, className }: VideoGridProps) {
   const [, forceUpdate] = useState(0)
 
   // Подписываемся на изменения треков у всех участников для обновления UI
@@ -286,4 +286,25 @@ export function VideoGrid({ localParticipant, remoteParticipants, className }: V
     </div>
   )
 }
+
+// Мемоизируем VideoGrid для предотвращения ненужных ре-рендеров
+// Перерендерится только при изменении localParticipant или remoteParticipants
+export const VideoGrid = memo(VideoGridComponent, (prevProps, nextProps) => {
+  // Сравниваем по identity участников (более эффективно, чем глубокое сравнение)
+  const prevLocalId = prevProps.localParticipant?.identity || null
+  const nextLocalId = nextProps.localParticipant?.identity || null
+  
+  if (prevLocalId !== nextLocalId) return false
+  
+  const prevRemoteIds = prevProps.remoteParticipants.map(p => p.identity).sort().join(',')
+  const nextRemoteIds = nextProps.remoteParticipants.map(p => p.identity).sort().join(',')
+  
+  if (prevRemoteIds !== nextRemoteIds) return false
+  
+  if (prevProps.className !== nextProps.className) return false
+  
+  return true // Ре-рендер не нужен
+})
+
+VideoGrid.displayName = 'VideoGrid'
 

@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { useSession } from 'next-auth/react'
-import { Room, Track, ConnectionState, RoomEvent } from 'livekit-client'
+import { Room, Track, ConnectionState, RoomEvent, LocalParticipant, RemoteParticipant } from 'livekit-client'
 import { TranscriptSidebar } from '@/components/call/TranscriptSidebar'
 import { TranscriptProvider, useTranscriptContext } from '@/contexts/TranscriptContext'
 import { useLocalParticipantTranscription } from '@/hooks/useLocalParticipantTranscription'
@@ -252,8 +252,8 @@ function SessionContentInner({
   room: Room | null
   isConnected: boolean
   connectionState: ConnectionState
-  localParticipant: any
-  remoteParticipants: any[]
+  localParticipant: LocalParticipant | null
+  remoteParticipants: RemoteParticipant[]
   micEnabled: boolean
   setMicEnabled: (enabled: boolean) => void
   cameraEnabled: boolean
@@ -413,7 +413,7 @@ function SessionContentInner({
   useEffect(() => {
     if (!room) return
 
-    const handleParticipantDisconnected = async (participant: any) => {
+    const handleParticipantDisconnected = async (participant: RemoteParticipant) => {
       // Проверяем, был ли отключившийся участник transcription host
       if (participant.identity === currentTranscriptionHostIdentity) {
         console.log('[SessionContent] Transcription host disconnected, selecting new host...', {
@@ -491,7 +491,7 @@ function SessionContentInner({
   useEffect(() => {
     if (!room) return
 
-    const handleData = (payload: Uint8Array, participant?: any) => {
+    const handleData = (payload: Uint8Array, participant?: RemoteParticipant) => {
       // Игнорируем собственные сообщения (local echo protection)
       const local = room?.localParticipant
       if (local && participant && participant.identity === local.identity) {

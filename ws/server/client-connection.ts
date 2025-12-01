@@ -13,6 +13,7 @@ import {
   incrementMessagesSent,
   recordError,
 } from './metrics'
+import { validateAudioChunk, cleanupClientTracker } from './audio-validator.js'
 
 dotenv.config()
 
@@ -199,6 +200,31 @@ export function handleClientConnection({ ws, req }: ClientConnectionOptions): vo
 
     // Отправляем аудио в Gladia
     if (data instanceof Buffer || data instanceof ArrayBuffer) {
+      // Валидация размера и частоты чанков (защита от DoS)
+      const validation = validateAudioChunk(data, participantIdentity || 'unknown')
+      
+      if (!validation.valid) {
+        console.warn('[WS-SERVER] Invalid audio chunk rejected', {
+          reason: validation.reason,
+          size: data.byteLength || data.length,
+          clientIdentity: participantIdentity,
+        })
+        recordError(`Invalid audio chunk: ${validation.reason}`)
+        
+        // Отправляем предупреждение клиенту (но не закрываем соединение)
+        if (ws.readyState === WebSocket.OPEN) {
+          try {
+            ws.send(JSON.stringify({
+              type: 'warning',
+              message: 'Audio chunk rejected: invalid size or rate limit exceeded',
+            }))
+          } catch (e) {
+            // Игнорируем ошибки отправки предупреждения
+          }
+        }
+        return
+      }
+      
       gladiaBridge.sendAudio(data)
       // Увеличиваем счетчик полученных сообщений (аудио чанков)
       incrementMessagesReceived()
@@ -207,6 +233,12 @@ export function handleClientConnection({ ws, req }: ClientConnectionOptions): vo
 
   ws.on('close', () => {
     console.log('[WS-SERVER] Client disconnected')
+    
+    // Очищаем трекер для клиента
+    if (participantIdentity) {
+      cleanupClientTracker(participantIdentity)
+    }
+    
     // Уменьшаем счетчики при закрытии соединения
     decrementConnections()
     if (gladiaBridge) {

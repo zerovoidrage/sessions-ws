@@ -2,7 +2,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { Room } from 'livekit-client'
+import { Room, RemoteParticipant } from 'livekit-client'
 import type { TranscriptMessage } from '@/types/transcript'
 
 interface UseTranscriptStreamOptions {
@@ -75,7 +75,7 @@ export function useTranscriptStream({ sessionSlug, room }: UseTranscriptStreamOp
   useEffect(() => {
     if (!room) return
 
-    const handleData = (payload: Uint8Array, participant?: any) => {
+    const handleData = (payload: Uint8Array, participant?: RemoteParticipant) => {
       // LOCAL ECHO PROTECTION: игнорируем сообщения от локального участника
       const local = room?.localParticipant
       if (local && participant && participant.identity === local.identity) {

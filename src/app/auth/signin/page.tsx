@@ -22,22 +22,23 @@ export default function SignInPage() {
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-surface-900 text-white-900">
-      <div className="rounded-2xl border border-onsurface-900 bg-white/5 p-28 shadow-xl max-w-md w-full text-center">
-        <p className="text-xs text-white-500 mb-20">
-          12rooms
-        </p>
-        <p className="text-xs text-white-900 mb-20">
-          Sign in to continue
+      <div className="rounded-2xl border border-onsurface-900 bg-white/5 p-28 shadow-xl max-w-md w-full text-center animate-fade-in-up">
+
+        <p className="text-sm text-white-900 mb-20">
+        Initialize your identity
         </p>
         <Button
           onClick={handleSignIn}
           disabled={isLoading}
           variant="primary"
-          size="md"
-          className="w-full"
+          size="lg"
         >
-          {isLoading ? 'Signing in...' : 'Sign in with Google'}
+          {isLoading ? 'Signing in...' : '> google'}
         </Button>
+
+        <p className="text-sm text-white-500 mt-20">
+          /sessions.ai
+        </p>
       </div>
     </div>
   )

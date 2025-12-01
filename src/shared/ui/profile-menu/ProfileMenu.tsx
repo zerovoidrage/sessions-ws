@@ -55,7 +55,7 @@ export function ProfileMenu({ user, onUserUpdate }: ProfileMenuProps) {
             )}
           </div>
         </button>
-        <Button variant="ghost" size="sm" onClick={() => signOut()}>
+        <Button variant="ghost" size="sm" onClick={() => signOut({ callbackUrl: '/' })}>
           Sign out
         </Button>
       </div>

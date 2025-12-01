@@ -12,10 +12,10 @@ export function generateNoAvatarColor(email: string): string {
     hash = email.charCodeAt(i) + ((hash << 5) - hash)
   }
   
-  // H = hash % 360 (оттенок), S = 70%, L = 60% (пастельный)
+  // H = hash % 360 (оттенок), S = 85%, L = 45% (более насыщенный и темный для видимости белого текста)
   const hue = Math.abs(hash) % 360
-  const saturation = 70
-  const lightness = 60
+  const saturation = 85
+  const lightness = 45
   
   return `hsl(${hue}, ${saturation}%, ${lightness}%)`
 }

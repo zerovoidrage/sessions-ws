@@ -22,7 +22,7 @@ const config: Config = {
       },
       colors: {
         white: {
-          500: '#CCCCCC',
+          500: '#5C5C5C',
           600: '#B3B3B3',
           700: '#999999',
           800: '#808080',

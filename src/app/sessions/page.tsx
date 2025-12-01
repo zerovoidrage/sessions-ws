@@ -10,7 +10,7 @@ export default async function SessionsPage() {
   const user = await getCurrentUser()
 
   if (!user) {
-    redirect('/auth/signin')
+    redirect('/')
   }
 
   // Проверяем онбординг

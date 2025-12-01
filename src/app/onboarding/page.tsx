@@ -7,7 +7,7 @@ export default async function OnboardingPage() {
   const user = await getCurrentUser()
 
   if (!user) {
-    redirect('/api/auth/signin')
+    redirect('/')
   }
 
   const completed = await isOnboardingCompleted(user.id)

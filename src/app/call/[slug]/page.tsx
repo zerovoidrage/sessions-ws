@@ -358,7 +358,7 @@ function CallRoomContent({
   if (!isConnected) {
     return (
       <div className="flex items-center justify-center h-full">
-        <p className="text-white-700">Connecting... {room.state}</p>
+        <p className="text-white-700">Connecting...</p>
       </div>
     )
   }

@@ -6,8 +6,13 @@ export async function middleware(request: NextRequest) {
   const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET })
 
   // Публичные пути
-  const publicPaths = ['/auth', '/api/auth']
-  const isPublicPath = publicPaths.some((path) => request.nextUrl.pathname.startsWith(path))
+  const publicPaths = ['/auth', '/api/auth', '/']
+  const isPublicPath = publicPaths.some((path) => {
+    if (path === '/') {
+      return request.nextUrl.pathname === '/'
+    }
+    return request.nextUrl.pathname.startsWith(path)
+  })
 
   // Разрешаем доступ к статическим файлам из public (включая /audio/, /images/ и т.д.)
   const isPublicStaticFile = request.nextUrl.pathname.startsWith('/audio/') || 
@@ -33,11 +38,9 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next()
   }
 
-  // Если не авторизован - редирект на signin
+  // Если не авторизован - редирект на главную (лендинг)
   if (!token) {
-    const signInUrl = new URL('/auth/signin', request.url)
-    signInUrl.searchParams.set('callbackUrl', request.nextUrl.pathname)
-    return NextResponse.redirect(signInUrl)
+    return NextResponse.redirect(new URL('/', request.url))
   }
 
   // Проверка онбординга для защищенных путей

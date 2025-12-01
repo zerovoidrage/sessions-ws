@@ -111,6 +111,19 @@ export async function deleteSessionById(sessionId: string): Promise<void> {
 }
 
 export async function deleteAllSessions(): Promise<void> {
+  // Удаляем все записи использования транскрипции (если таблица существует)
+  // Делаем это ДО транзакции, чтобы ошибка не прервала основную транзакцию
+  try {
+    await db.transcriptionUsage.deleteMany({})
+  } catch (error: any) {
+    // Игнорируем ошибку, если таблица не существует (P2021 - table does not exist)
+    if (error?.code !== 'P2021') {
+      console.warn('[deleteAllSessions] Error deleting transcriptionUsage:', error)
+    } else {
+      console.warn('[deleteAllSessions] TranscriptionUsage table does not exist, skipping deletion')
+    }
+  }
+  
   // Удаляем все связанные записи перед удалением всех сессий
   await db.$transaction(async (tx) => {
     // Удаляем все транскрипты всех сессий
@@ -118,9 +131,6 @@ export async function deleteAllSessions(): Promise<void> {
     
     // Удаляем всех участников всех сессий
     await tx.participant.deleteMany({})
-    
-    // Удаляем все записи использования транскрипции
-    await tx.transcriptionUsage.deleteMany({})
     
     // Теперь можно безопасно удалить все сессии
     await tx.videoSession.deleteMany({})

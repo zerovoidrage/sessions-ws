@@ -1,11 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Button } from '@/shared/ui/button'
 import { Avatar } from '@/shared/ui/avatar/Avatar'
-import { Input } from '@/shared/ui/input'
-import { Modal } from '@/shared/ui/modal'
-import { cn } from '@/lib/utils'
 import type { DomainUser } from '@/modules/core/identity/domain/user.types'
 
 export interface EditProfileModalProps {
@@ -72,8 +68,9 @@ export function EditProfileModal({ isOpen, onClose, user, onSave }: EditProfileM
     }
   }
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
+  const handleSave = async () => {
+    if (!displayName.trim()) return
+
     setIsLoading(true)
     setError(null)
 
@@ -104,11 +101,41 @@ export function EditProfileModal({ isOpen, onClose, user, onSave }: EditProfileM
     }
   }
 
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter' && !isLoading && displayName.trim()) {
+      handleSave()
+    }
+  }
+
+  // Закрытие по ESC
+  useEffect(() => {
+    if (!isOpen) return
+
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose()
+      }
+    }
+
+    document.addEventListener('keydown', handleEscape)
+    return () => {
+      document.removeEventListener('keydown', handleEscape)
+    }
+  }, [isOpen, onClose])
+
+  if (!isOpen) return null
+
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Edit Profile">
-      <form onSubmit={handleSubmit} className="space-y-6">
-        {/* Avatar Upload */}
-        <div className="flex flex-col items-center gap-4">
+    <div
+      className="fixed inset-0 z-50 bg-black flex items-center justify-center"
+      onClick={onClose}
+    >
+      <div
+        className="text-center w-full max-w-md px-4"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Avatar */}
+        <div className="flex flex-col items-center gap-4 mb-8">
           <Avatar
             userId={user.id}
             displayName={displayName || user.email}
@@ -129,12 +156,7 @@ export function EditProfileModal({ isOpen, onClose, user, onSave }: EditProfileM
                 }
               }}
             />
-            <span
-              className={cn(
-                'text-callout text-white-700 hover:text-white-900 underline',
-                (isUploading || isLoading) && 'opacity-50 cursor-not-allowed'
-              )}
-            >
+            <span className="text-4xl text-white-500 hover:opacity-60 transition-opacity underline">
               {isUploading ? 'Uploading...' : 'Upload avatar'}
             </span>
           </label>
@@ -143,56 +165,44 @@ export function EditProfileModal({ isOpen, onClose, user, onSave }: EditProfileM
               type="button"
               onClick={() => setAvatarUrl(null)}
               disabled={isUploading || isLoading}
-              className="text-callout text-white-500 hover:text-white-700 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+              className="text-4xl text-white-500 hover:opacity-60 transition-opacity disabled:opacity-30 disabled:cursor-not-allowed"
             >
               Remove avatar
             </button>
           )}
         </div>
 
-        {/* Display Name */}
-        <div>
-          <label htmlFor="displayName" className="block text-callout text-white-700 mb-2">
-            Display name *
-          </label>
-          <Input
-            id="displayName"
-            type="text"
+        {/* Display Name Input */}
+        <div className="mb-8">
+          <input
+            autoFocus
             value={displayName}
-            onChange={(e) => setDisplayName(e.target.value)}
-            required
-            minLength={2}
-            maxLength={40}
-            placeholder="Enter your display name"
+            onChange={(e) => {
+              setDisplayName(e.target.value)
+              setError(null)
+            }}
+            onKeyDown={handleKeyDown}
+            placeholder="Enter your display name…"
             disabled={isLoading}
+            className="bg-transparent border-none outline-none text-white-900 text-2xl text-center placeholder:text-white-500 w-full disabled:opacity-50"
           />
+          {error && (
+            <p className="mt-4 text-center text-sm text-red-400">{error}</p>
+          )}
         </div>
 
-        {error && (
-          <div className="text-callout text-red-500 bg-red-500/10 px-4 py-2 rounded-lg">
-            {error}
-          </div>
-        )}
-
-        <div className="flex gap-3 justify-end">
-          <Button
-            type="button"
-            variant="ghost"
-            onClick={onClose}
-            disabled={isLoading || isUploading}
-          >
-            Cancel
-          </Button>
-          <Button
-            type="submit"
+        {/* Save Button */}
+        <div className="fixed bottom-0 left-0 right-0 flex justify-center pb-8">
+          <button
+            onClick={handleSave}
             disabled={isLoading || isUploading || !displayName.trim()}
-            variant="primary"
+            className="px-8 py-4 bg-white text-black rounded-full text-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-90 transition-opacity"
           >
             {isLoading ? 'Saving...' : 'Save'}
-          </Button>
+          </button>
         </div>
-      </form>
-    </Modal>
+      </div>
+    </div>
   )
 }
 

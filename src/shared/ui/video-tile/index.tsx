@@ -95,7 +95,7 @@ export function VideoTile({
   return (
     <div
       className={cn(
-        'relative w-full h-full bg-onsurface-800 rounded-md overflow-hidden',
+        'relative w-full h-full bg-onsurface-800 rounded-md overflow-hidden min-h-0',
         isSpeaking && 'ring-2 ring-brand-green',
         className
       )}
@@ -110,7 +110,7 @@ export function VideoTile({
           className="w-full h-full object-cover object-center"
         />
       ) : (
-        <div className="w-full h-full flex items-center justify-center bg-onsurface-800">
+        <div className="w-full h-full flex items-center justify-center bg-onsurface-800 min-h-[200px]">
         </div>
       )}
       {participantName && (

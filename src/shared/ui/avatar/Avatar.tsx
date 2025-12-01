@@ -31,8 +31,8 @@ function generateColorFromString(str: string): string {
   }
   
   const hue = Math.abs(hash) % 360
-  const saturation = 70
-  const lightness = 60
+  const saturation = 85
+  const lightness = 45
   
   return `hsl(${hue}, ${saturation}%, ${lightness}%)`
 }

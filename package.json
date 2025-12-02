@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@discordjs/opus": "^0.10.0",
+    "@prisma/client": "^5.18.0",
     "dotenv": "^16.6.1",
     "jsonwebtoken": "^9.0.2",
     "livekit-server-sdk": "^2.14.2",
@@ -20,8 +21,14 @@
     "@types/node": "^20.14.12",
     "@types/node-media-server": "^2.3.7",
     "@types/ws": "^8.18.1",
+    "prisma": "^5.18.0",
     "tsx": "^4.7.0",
     "typescript": "^5.5.4"
+  },
+  "scripts": {
+    "start": "tsx server/index.ts",
+    "dev": "tsx server/index.ts",
+    "postinstall": "prisma generate"
   }
 }
 

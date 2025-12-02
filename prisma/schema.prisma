@@ -1,0 +1,262 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  emailVerified DateTime?
+  name          String?
+  image         String? // Только для совместимости с NextAuth OAuth - не используется в приложении
+  displayName   String?
+  avatarUrl     String?
+  noAvatarColor String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  videoSessions VideoSession[] @relation("VideoSessionsCreated")
+  spaces        Space[]        @relation("SpacesOwned")
+  activeSpaceId String?
+  activeSpace   Space?         @relation("ActiveSpace", fields: [activeSpaceId], references: [id])
+
+  spaceMembers       SpaceMember[]
+  participants       Participant[]
+  transcriptionUsage TranscriptionUsage[]
+
+  // NextAuth relations
+  accounts Account[]
+  sessions Session[]
+}
+
+enum SpaceMode {
+  SESSIONS_ONLY
+  SESSIONS_AND_TASKS
+}
+
+enum SpaceRole {
+  OWNER
+  MEMBER
+}
+
+model Space {
+  id        String   @id @default(cuid())
+  name      String
+  ownerId   String
+  owner     User     @relation("SpacesOwned", fields: [ownerId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  mode SpaceMode @default(SESSIONS_ONLY)
+
+  videoSessions VideoSession[]
+  members       SpaceMember[]
+  activeUsers   User[]         @relation("ActiveSpace")
+}
+
+model SpaceMember {
+  id      String @id @default(cuid())
+  spaceId String
+  space   Space  @relation(fields: [spaceId], references: [id])
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  role      SpaceRole @default(OWNER)
+  createdAt DateTime  @default(now())
+
+  @@unique([spaceId, userId])
+  @@index([spaceId])
+  @@index([userId])
+}
+
+model VideoSession {
+  id              String        @id @default(cuid())
+  slug            String        @unique
+  title           String?
+  createdByUserId String?
+  createdBy       User?         @relation("VideoSessionsCreated", fields: [createdByUserId], references: [id])
+  status          SessionStatus @default(CREATED)
+  createdAt       DateTime      @default(now())
+  startedAt       DateTime?
+  endedAt         DateTime?
+  lastActivityAt  DateTime?
+
+  spaceId String
+  space   Space  @relation(fields: [spaceId], references: [id])
+
+  participants       Participant[]
+  transcripts        TranscriptSegment[]
+  transcriptionUsage TranscriptionUsage[]
+  analysis           SessionAnalysis?
+
+  // Raw transcript storage in Vercel Blob
+  rawTranscriptBlobUrl   String?   // URL на JSON в Vercel Blob
+  rawTranscriptSizeBytes Int?      // размер файла в байтах
+  rawTranscriptReadyAt   DateTime? // когда мы собрали и сохранили сырой транскрипт
+
+  @@index([spaceId])
+  @@index([createdByUserId])
+  @@index([status])
+  @@index([lastActivityAt])
+}
+
+// NextAuth models
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+enum SessionStatus {
+  CREATED   // сессия создана, но ещё никто не заходил
+  LIVE      // хотя бы один участник заходил (мит реально стартовал)
+  ENDED     // мит закончился, готов к AI-анализу
+  EXPIRED   // мит так и не начался и протух
+}
+
+model Participant {
+  id             String       @id @default(cuid())
+  videoSessionId String
+  videoSession   VideoSession @relation(fields: [videoSessionId], references: [id])
+
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id])
+
+  identity String // LiveKit identity
+  name     String?
+  role     ParticipantRole @default(GUEST)
+  joinedAt DateTime        @default(now())
+  leftAt   DateTime?
+
+  transcripts        TranscriptSegment[]
+  transcriptionUsage TranscriptionUsage[]
+
+  @@unique([videoSessionId, identity])
+  @@index([videoSessionId])
+}
+
+enum ParticipantRole {
+  HOST
+  GUEST
+}
+
+model TranscriptSegment {
+  id             String       @id @default(cuid())
+  videoSessionId String
+  videoSession   VideoSession @relation(fields: [videoSessionId], references: [id])
+
+  participantId String?
+  participant   Participant? @relation(fields: [participantId], references: [id])
+
+  utteranceId String // Gladia data.id
+  text        String
+  language    String?
+  isFinal     Boolean   @default(false)
+  startedAt   DateTime // timestamp начала utterance
+  endedAt     DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@unique([videoSessionId, utteranceId])
+  @@index([videoSessionId])
+}
+
+model TranscriptionUsage {
+  id String @id @default(cuid())
+
+  videoSessionId String
+  videoSession   VideoSession @relation(fields: [videoSessionId], references: [id])
+
+  participantId String?
+  participant   Participant? @relation(fields: [participantId], references: [id])
+
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id])
+
+  startedAt DateTime  @default(now())
+  endedAt   DateTime?
+
+  durationSeconds Int // Длительность в секундах
+  durationMinutes Int // Длительность в минутах (округлённая вверх)
+
+  audioChunksSent     Int @default(0)
+  transcriptsReceived Int @default(0)
+  finalTranscripts    Int @default(0)
+  partialTranscripts  Int @default(0)
+
+  costPerMinute Float @default(0.01) // Стоимость за минуту (по умолчанию $0.01)
+  totalCost     Float @default(0) // Общая стоимость
+
+  errorsCount Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([videoSessionId])
+  @@index([participantId])
+  @@index([userId])
+  @@index([createdAt])
+}
+
+model SessionAnalysis {
+  id         String          @id @default(cuid())
+  sessionId  String          @unique
+  session    VideoSession    @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  status     AnalysisStatus  @default(PENDING)
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+
+  summary    String?
+  tasksJson  Json?
+  risksJson  Json?
+
+  @@index([sessionId])
+  @@index([status])
+}
+
+enum AnalysisStatus {
+  PENDING   // сессия завершена, анализ ещё не стартовал или в очереди
+  RUNNING   // анализ в процессе
+  DONE      // анализ успешно завершён, summary/tasks заполнены
+  FAILED    // анализ упал (можно перезапустить)
+}

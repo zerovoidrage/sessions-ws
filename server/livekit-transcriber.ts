@@ -73,13 +73,14 @@ export async function startServerTranscription(
     const { startRoomCompositeTranscription } = await import('./livekit-room-composite-transcriber.js')
     
     const rtmpHost = process.env.RTMP_HOST || 'localhost' // Для production нужен публичный IP/домен
-    const rtmpPort = parseInt(process.env.RTMP_PORT || '1935', 10)
+    // Внешний порт для Egress URL (через TCP прокси)
+    const rtmpExternalPort = parseInt(process.env.RTMP_EXTERNAL_PORT || process.env.RTMP_PORT || '1935', 10)
     
     const transcriber = await startRoomCompositeTranscription({
       sessionId,
       sessionSlug,
       rtmpHost,
-      rtmpPort,
+      rtmpPort: rtmpExternalPort, // Внешний порт для Egress
     })
     
     const wrappedTranscriber: ServerTranscriber = {

@@ -55,7 +55,12 @@ export async function startRoomCompositeTranscription(
     process.env.RTMP_HOST || 
     'localhost'
   
-  const { sessionId, sessionSlug, rtmpPort = 1935, rtmpHost = defaultRtmpHost } = options
+  // Внешний порт для Egress URL (через TCP прокси Railway)
+  // Если не указан, используем RTMP_EXTERNAL_PORT или RTMP_PORT из переменных окружения
+  const externalPort = options.rtmpPort || 
+    parseInt(process.env.RTMP_EXTERNAL_PORT || process.env.RTMP_PORT || '1935', 10)
+  
+  const { sessionId, sessionSlug, rtmpHost = defaultRtmpHost } = options
 
   console.log(`[RoomCompositeTranscriber] Starting transcription for session ${sessionId} (room: ${sessionSlug})`)
 
@@ -68,15 +73,16 @@ export async function startRoomCompositeTranscription(
 
   // RTMP URL для приема потока от Egress
   // ВАЖНО: Для production rtmpHost должен быть публичным IP/доменом
-  // Если используется ngrok, порт может отличаться от 1935
-  const rtmpUrl = `rtmp://${rtmpHost}:${rtmpPort}/live/${sessionSlug}`
+  // Используем внешний порт (через TCP прокси Railway)
+  const rtmpUrl = `rtmp://${rtmpHost}:${externalPort}/live/${sessionSlug}`
 
   try {
     // 1. Запускаем RTMP Ingest сервер для приема потока
+    // Внутренний порт всегда 1935 (где слушает RTMP сервер)
     const rtmpIngest = await createRTMPIngest({
       sessionId,
       sessionSlug,
-      rtmpPort,
+      rtmpPort: 1935, // Внутренний порт
     })
 
     // 2. Запускаем Room Composite Egress с audio-only и RTMP выходом

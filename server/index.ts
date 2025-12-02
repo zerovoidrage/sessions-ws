@@ -22,6 +22,12 @@ server.on('request', (req, res) => {
     return
   }
 
+  // Логируем все входящие HTTP запросы для отладки
+  console.log(`[WS-SERVER] HTTP ${req.method} ${req.url}`, {
+    host: req.headers.host,
+    upgrade: req.headers.upgrade,
+  })
+
   // CORS headers для возможности доступа из браузера (опционально)
   res.setHeader('Access-Control-Allow-Origin', '*')
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
@@ -66,24 +72,29 @@ server.on('request', (req, res) => {
 
   // API endpoint для запуска серверной транскрипции
   if (req.url?.startsWith('/api/transcription/start') && req.method === 'POST') {
+    console.log(`[WS-SERVER] Received transcription start request: ${req.url}`)
     let body = ''
     req.on('data', (chunk) => { body += chunk.toString() })
     req.on('end', async () => {
       try {
+        console.log(`[WS-SERVER] Parsing request body: ${body}`)
         const { sessionId, sessionSlug } = JSON.parse(body)
         if (!sessionId || !sessionSlug) {
+          console.error(`[WS-SERVER] Missing sessionId or sessionSlug in request`)
           res.statusCode = 400
           res.end(JSON.stringify({ error: 'Missing sessionId or sessionSlug' }))
           return
         }
 
+        console.log(`[WS-SERVER] Starting transcription for session ${sessionId} (room: ${sessionSlug})`)
         const { startServerTranscription } = await import('./livekit-transcriber.js')
         await startServerTranscription({ sessionId, sessionSlug })
         
+        console.log(`[WS-SERVER] ✅ Transcription started successfully for session ${sessionId}`)
         res.statusCode = 200
         res.end(JSON.stringify({ success: true, sessionId }))
       } catch (error: any) {
-        console.error('[WS-SERVER] Error starting transcription:', error)
+        console.error('[WS-SERVER] ❌ Error starting transcription:', error)
         res.statusCode = 500
         res.end(JSON.stringify({ error: error.message || 'Failed to start transcription' }))
       }

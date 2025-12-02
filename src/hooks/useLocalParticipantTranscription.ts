@@ -688,49 +688,34 @@ export function useLocalParticipantTranscription({
         }
         
         // Определяем протокол и хост для WebSocket
-        let wsHost = process.env.NEXT_PUBLIC_WS_HOST || 'localhost'
-        wsHost = wsHost.replace(/^https?:\/\//, '').replace(/\/$/, '')
+        // Для production: используем NEXT_PUBLIC_WS_HOST без порта (Railway проксирует через 443)
+        // Для dev: используем localhost:3001
+        const wsHost = process.env.NEXT_PUBLIC_WS_HOST || 'localhost'
+        const cleanHost = wsHost.replace(/^https?:\/\//, '').replace(/\/$/, '')
         
-        const isProductionHost = wsHost !== 'localhost' && !wsHost.startsWith('127.0.0.1') && !wsHost.startsWith('192.168.')
+        const isLocal = cleanHost === 'localhost' || cleanHost.startsWith('127.0.0.1') || cleanHost.startsWith('192.168.')
         const isHttps = typeof window !== 'undefined' && window.location.protocol === 'https:'
-        const isProduction = isProductionHost || isHttps
-        const wsProtocol = isProduction ? 'wss' : 'ws'
         
-        const wsPort = process.env.NEXT_PUBLIC_WS_PORT
-        let portSuffix = ''
-        // Для production (wss): порт не указываем (HTTPS/WSS проксируется на стандартный 443)
-        // Для dev: используем указанный порт или 3001 по умолчанию
-        if (!isProduction) {
-          if (wsPort && wsPort !== '') {
-            portSuffix = `:${wsPort}`
-          } else {
-            // Для dev окружения используем порт по умолчанию
-            portSuffix = ':3001'
-          }
-        }
-        // Для production без явного порта - используем стандартный порт (443 для WSS, не указываем в URL)
+        // Протокол: wss для HTTPS, ws для HTTP
+        const wsProtocol = isHttps ? 'wss' : 'ws'
         
-        const wsUrl = `${wsProtocol}://${wsHost}${portSuffix}/api/realtime/transcribe?token=${encodeURIComponent(transcriptionToken)}`
+        // Порт: только для локальной разработки
+        const portSuffix = isLocal ? ':3001' : ''
+        
+        const wsUrl = `${wsProtocol}://${cleanHost}${portSuffix}/api/realtime/transcribe?token=${encodeURIComponent(transcriptionToken)}`
         
         console.log('[Transcription] WebSocket URL constructed', {
-          wsHost,
+          wsHost: cleanHost,
           wsProtocol,
-          wsPort,
           portSuffix,
-          isProduction,
-          isProductionHost,
+          isLocal,
           isHttps,
           wsUrl: wsUrl.replace(/token=[^&]+/, 'token=***'),
         })
 
-        // Подключаемся к WebSocket ДО создания AudioWorklet
-        // ВАЖНО: Если серверная транскрипция включена, клиентская транскрипция отключена
-        if (SERVER_TRANSCRIPTION_ENABLED) {
-          console.log('[Transcription] Server transcription enabled, skipping client-side WebSocket connection')
-          isStartingRef.current = false
-          return // Не запускаем клиентскую транскрипцию
-        }
-        
+        // Подключаемся к WebSocket для получения транскриптов от сервера
+        // ВАЖНО: Даже при серверной транскрипции клиент должен подключаться к WebSocket
+        // для получения транскриптов, но не отправлять аудио
         let ws: WebSocket
         try {
           ws = await connectTranscriptionWebSocket(wsUrl, {
@@ -740,12 +725,100 @@ export function useLocalParticipantTranscription({
           })
           wsRef.current = ws
           wsReadyRef.current = true
-          console.log('[Transcription] ✅ WebSocket connected (before AudioWorklet creation)', {
-            wsUrl: wsUrl.replace(/token=[^&]+/, 'token=***'),
-            readyState: ws.readyState,
-          })
+          
+          // Устанавливаем обработчик сообщений ДО проверки SERVER_TRANSCRIPTION_ENABLED
+          // чтобы получать транскрипты от сервера даже при серверной транскрипции
+          const handleMessage = (event: MessageEvent) => {
+            try {
+              // Проверяем, что комната еще подключена
+              if (!room || room.state !== ConnectionState.Connected || !localParticipant) {
+                console.warn('[Transcription] Received message but room/participant not ready', {
+                  hasRoom: !!room,
+                  roomState: room?.state,
+                  hasLocalParticipant: !!localParticipant,
+                })
+                return
+              }
+
+              const data = JSON.parse(event.data)
+              
+              // Детальное логирование всех входящих сообщений
+              console.log('[Transcription] 📨 WebSocket message received', {
+                type: data.type,
+                hasText: !!data.text,
+                textLength: data.text?.length,
+                isFinal: data.is_final,
+                utteranceId: data.utterance_id || data.utteranceId,
+                rawData: data,
+              })
+
+              if (data.type === 'transcription' && data.text?.trim() && isMountedRef.current) {
+                const isFinal = Boolean(data.is_final)
+                
+                console.log('[Transcription] ✅ Processing transcription message', {
+                  text: data.text.substring(0, 100),
+                  isFinal,
+                  utteranceId: data.utterance_id || data.utteranceId || null,
+                })
+                
+                // Обновляем метрики
+                if (localParticipant) {
+                  clientTranscriptionMetrics.incrementTranscripts(
+                    sessionSlug,
+                    localParticipant.identity,
+                    isFinal
+                  )
+                }
+                
+                sendTranscriptFromServer({
+                  text: data.text,
+                  isFinal,
+                  utteranceId: data.utterance_id || data.utteranceId || null,
+                })
+              } else if (data.type === 'error') {
+                console.error('[Transcription] Server error:', data.message || data)
+                // Записываем ошибку в метрики
+                if (localParticipant) {
+                  const errorMsg = data.message || 'Unknown server error'
+                  clientTranscriptionMetrics.recordError(sessionSlug, localParticipant.identity, errorMsg)
+                }
+              } else {
+                // Логируем сообщения неизвестного формата
+                console.warn('[Transcription] Unknown message format', {
+                  type: data.type,
+                  data: data,
+                })
+              }
+            } catch (error) {
+              console.error('[Transcription] Error parsing server message:', error, {
+                eventData: event.data,
+              })
+            }
+          }
+
+          ws.onmessage = handleMessage
+          ws.onerror = (error) => {
+            console.error('[Transcription] WebSocket error:', error)
+            wsReadyRef.current = false
+          }
+          
+          if (SERVER_TRANSCRIPTION_ENABLED) {
+            console.log('[Transcription] ✅ WebSocket connected for receiving server transcripts (client-side audio disabled)', {
+              wsUrl: wsUrl.replace(/token=[^&]+/, 'token=***'),
+              readyState: ws.readyState,
+            })
+            // При серверной транскрипции не создаем AudioWorklet и не отправляем аудио
+            // Просто слушаем транскрипты от сервера через уже установленный обработчик
+            isStartingRef.current = false
+            return
+          } else {
+            console.log('[Transcription] ✅ WebSocket connected (before AudioWorklet creation)', {
+              wsUrl: wsUrl.replace(/token=[^&]+/, 'token=***'),
+              readyState: ws.readyState,
+            })
+          }
         } catch (error) {
-          console.error('[Transcription] Failed to connect WebSocket before AudioWorklet:', {
+          console.error('[Transcription] Failed to connect WebSocket:', {
             error,
             errorMessage: error instanceof Error ? error.message : String(error),
             wsUrl: wsUrl.replace(/token=[^&]+/, 'token=***'),
@@ -985,83 +1058,7 @@ export function useLocalParticipantTranscription({
           clearInterval(healthCheckInterval)
         })
 
-        // Обработчик сообщений от сервера (определяем до onclose, чтобы можно было переиспользовать)
-        const handleMessage = (event: MessageEvent) => {
-          try {
-            // Проверяем, что комната еще подключена
-            if (!room || room.state !== ConnectionState.Connected || !localParticipant) {
-              console.warn('[Transcription] Received message but room/participant not ready', {
-                hasRoom: !!room,
-                roomState: room?.state,
-                hasLocalParticipant: !!localParticipant,
-              })
-              return
-            }
-
-            const data = JSON.parse(event.data)
-            
-            // Детальное логирование всех входящих сообщений
-            console.log('[Transcription] 📨 WebSocket message received', {
-              type: data.type,
-              hasText: !!data.text,
-              textLength: data.text?.length,
-              isFinal: data.is_final,
-              utteranceId: data.utterance_id || data.utteranceId,
-              rawData: data,
-            })
-
-            if (data.type === 'transcription' && data.text?.trim() && isMountedRef.current) {
-              const isFinal = Boolean(data.is_final)
-              
-              console.log('[Transcription] ✅ Processing transcription message', {
-                text: data.text.substring(0, 100),
-                isFinal,
-                utteranceId: data.utterance_id || data.utteranceId || null,
-              })
-              
-              // Обновляем метрики
-              if (localParticipant) {
-                clientTranscriptionMetrics.incrementTranscripts(
-                  sessionSlug,
-                  localParticipant.identity,
-                  isFinal
-                )
-              }
-              
-              sendTranscriptFromServer({
-                text: data.text,
-                isFinal,
-                utteranceId: data.utterance_id || data.utteranceId || null,
-              })
-            } else if (data.type === 'error') {
-              console.error('[Transcription] Server error:', data.message || data)
-              // Записываем ошибку в метрики
-              if (localParticipant) {
-                const errorMsg = data.message || 'Unknown server error'
-                clientTranscriptionMetrics.recordError(sessionSlug, localParticipant.identity, errorMsg)
-              }
-            } else {
-              // Логируем сообщения неизвестного формата
-              console.warn('[Transcription] Unknown message format', {
-                type: data.type,
-                data: data,
-              })
-            }
-          } catch (error) {
-            console.error('[Transcription] Error parsing server message:', error, {
-              eventData: event.data,
-            })
-          }
-        }
-
-        ws.onmessage = handleMessage
-
-        // Обработчик ошибок WebSocket
-        ws.onerror = (error) => {
-          console.error('[Transcription] WebSocket error:', error)
-          wsReadyRef.current = false
-          // Не вызываем room.disconnect() - WebSocket не должен ломать LiveKit комнату
-        }
+        // Обработчик сообщений уже установлен выше (перед проверкой SERVER_TRANSCRIPTION_ENABLED)
 
         // Функция для переподключения WebSocket
         // ВАЖНО: Эта функция сохраняет все замыкания, включая handleMessage и convertAndSendAudio
@@ -1084,13 +1081,17 @@ export function useLocalParticipantTranscription({
             return
           }
 
-          // Проверяем, что пайплайн всё ещё работает (AudioContext и Worklet должны быть активны)
-          if (!audioContextRef.current || !workletNodeRef.current) {
-            console.log('[Transcription] Audio pipeline not running, skipping WebSocket reconnect - will restart full pipeline')
-            return
+          // При серверной транскрипции не проверяем AudioContext/Worklet (они не используются)
+          if (!SERVER_TRANSCRIPTION_ENABLED) {
+            // Проверяем, что пайплайн всё ещё работает (AudioContext и Worklet должны быть активны)
+            if (!audioContextRef.current || !workletNodeRef.current) {
+              console.log('[Transcription] Audio pipeline not running, skipping WebSocket reconnect - will restart full pipeline')
+              return
+            }
+            console.log('[Transcription] Attempting to reconnect WebSocket while keeping audio pipeline running...')
+          } else {
+            console.log('[Transcription] Attempting to reconnect WebSocket for server transcription...')
           }
-
-          console.log('[Transcription] Attempting to reconnect WebSocket while keeping audio pipeline running...')
           
           // Проверяем, что transcriptionToken доступен для переподключения
           if (!transcriptionTokenRef.current) {
@@ -1099,34 +1100,15 @@ export function useLocalParticipantTranscription({
           }
           
           // Создаем новый URL с актуальным transcriptionToken (используем ту же логику, что и в startTranscription)
-          let reconnectWsHost = process.env.NEXT_PUBLIC_WS_HOST || 'localhost'
-          reconnectWsHost = reconnectWsHost.replace(/^https?:\/\//, '').replace(/\/$/, '')
+          const reconnectWsHost = process.env.NEXT_PUBLIC_WS_HOST || 'localhost'
+          const reconnectCleanHost = reconnectWsHost.replace(/^https?:\/\//, '').replace(/\/$/, '')
           
-          const reconnectIsProductionHost = reconnectWsHost !== 'localhost' && !reconnectWsHost.startsWith('127.0.0.1') && !reconnectWsHost.startsWith('192.168.')
+          const reconnectIsLocal = reconnectCleanHost === 'localhost' || reconnectCleanHost.startsWith('127.0.0.1') || reconnectCleanHost.startsWith('192.168.')
           const reconnectIsHttps = typeof window !== 'undefined' && window.location.protocol === 'https:'
-          const reconnectIsProduction = reconnectIsProductionHost || reconnectIsHttps
-          const reconnectWsProtocol = reconnectIsProduction ? 'wss' : 'ws'
+          const reconnectWsProtocol = reconnectIsHttps ? 'wss' : 'ws'
+          const reconnectPortSuffix = reconnectIsLocal ? ':3001' : ''
           
-          const reconnectWsPort = process.env.NEXT_PUBLIC_WS_PORT
-          let reconnectPortSuffix = ''
-          // Для production (wss): порт не указываем (HTTPS/WSS проксируется на стандартный 443)
-          // Для dev: используем указанный порт или 3001 по умолчанию
-          if (!reconnectIsProduction) {
-            if (reconnectWsPort && reconnectWsPort !== '') {
-              reconnectPortSuffix = `:${reconnectWsPort}`
-            } else {
-              // Для dev окружения используем порт по умолчанию
-              reconnectPortSuffix = ':3001'
-            }
-          }
-          
-          const reconnectWsUrl = `${reconnectWsProtocol}://${reconnectWsHost}${reconnectPortSuffix}/api/realtime/transcribe?token=${encodeURIComponent(transcriptionTokenRef.current)}`
-          
-          // ВАЖНО: Если серверная транскрипция включена, не переподключаемся
-          if (SERVER_TRANSCRIPTION_ENABLED) {
-            console.log('[Transcription] Server transcription enabled, skipping WebSocket reconnection')
-            return
-          }
+          const reconnectWsUrl = `${reconnectWsProtocol}://${reconnectCleanHost}${reconnectPortSuffix}/api/realtime/transcribe?token=${encodeURIComponent(transcriptionTokenRef.current)}`
           
           try {
             const newWs = await connectTranscriptionWebSocket(reconnectWsUrl, {
@@ -1169,7 +1151,12 @@ export function useLocalParticipantTranscription({
               })
               
               // Если закрылось не по нашей инициативе (код 1000) и транскрипция активна, переподключаемся
-              if (event.code !== 1000 && isActive && room && room.state === ConnectionState.Connected && localParticipant && isMountedRef.current && audioContextRef.current) {
+              // При серверной транскрипции не проверяем audioContextRef
+              const shouldReconnect = SERVER_TRANSCRIPTION_ENABLED 
+                ? (event.code !== 1000 && isActive && room && room.state === ConnectionState.Connected && localParticipant && isMountedRef.current)
+                : (event.code !== 1000 && isActive && room && room.state === ConnectionState.Connected && localParticipant && isMountedRef.current && audioContextRef.current)
+              
+              if (shouldReconnect) {
                 // Очищаем предыдущий timeout
                 if (wsReconnectTimeoutRef.current) {
                   clearTimeout(wsReconnectTimeoutRef.current)

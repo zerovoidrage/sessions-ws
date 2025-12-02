@@ -36,19 +36,12 @@ export function useActiveSpeakerTracker({
       return
     }
 
-    // Определяем URL для HTTP API (более надежно, чем WebSocket на Railway)
-    const wsHost = process.env.NEXT_PUBLIC_WS_HOST || 'localhost'
-    const isLocal = wsHost.includes('localhost') || wsHost.includes('127.0.0.1')
-    const protocol = isLocal ? 'http' : 'https'
-    
-    // Для production (HTTPS): порт не указываем (стандартный 443)
-    // Для dev: используем указанный порт или 3001 по умолчанию
-    let portSuffix = ''
-    if (isLocal) {
-      const wsPort = process.env.NEXT_PUBLIC_WS_PORT
-      portSuffix = wsPort && wsPort !== '' ? `:${wsPort}` : ':3001'
-    }
-    const apiBaseUrl = `${protocol}://${wsHost}${portSuffix}`
+    // Используем WS_SERVER_URL для HTTP API запросов
+    // Для локальной разработки: http://localhost:3001
+    // Для production: https://sessions-ws-production.up.railway.app
+    const apiBaseUrl = process.env.WS_SERVER_URL || (typeof window !== 'undefined' && window.location.protocol === 'https:' 
+      ? 'https://sessions-ws-production.up.railway.app' 
+      : 'http://localhost:3001')
 
     // Функция для определения текущего активного спикера
     const getActiveSpeaker = (): { identity: string; name?: string } | null => {

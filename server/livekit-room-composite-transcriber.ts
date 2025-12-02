@@ -38,7 +38,7 @@ export interface RoomCompositeTranscriber {
 export interface StartRoomCompositeTranscriptionOptions {
   sessionId: string
   sessionSlug: string
-  rtmpPort?: number
+  rtmpPort?: number // Внешний порт для Egress URL (через TCP прокси)
   rtmpHost?: string // Хост для RTMP (по умолчанию localhost, для production нужен публичный IP)
 }
 

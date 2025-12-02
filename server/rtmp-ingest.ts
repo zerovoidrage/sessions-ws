@@ -16,6 +16,7 @@ import { getGlobalRTMPServer, startGlobalRTMPServer, type RTMPStreamHandler } fr
 import { createGladiaBridge, type TranscriptEvent } from './gladia-bridge.js'
 import { broadcastToSessionClients } from './client-connection.js'
 import { appendTranscriptChunk } from './append-transcript-chunk.js'
+import { getActiveSpeaker } from './active-speaker-tracker.js'
 
 export interface RTMPIngestConfig {
   rtmpPort?: number
@@ -179,11 +180,16 @@ class RTMPIngestImpl extends EventEmitter implements RTMPIngest {
   private handleTranscript(event: TranscriptEvent): void {
     if (!this.gladiaBridge) return
 
+    // Получаем текущего активного спикера для этой сессии
+    const activeSpeaker = getActiveSpeaker(this.config.sessionSlug)
+    const speakerIdentity = activeSpeaker?.identity || 'room'
+    const speakerName = activeSpeaker?.name || 'Meeting'
+
     // 1. Отправляем транскрипт всем подключенным клиентам сессии
     broadcastToSessionClients(this.config.sessionId, {
       type: 'transcription',
-      speakerId: event.speakerId || 'room', // Gladia diarization вернет speaker ID
-      speakerName: event.speakerName || 'Meeting',
+      speakerId: speakerIdentity,
+      speakerName: speakerName,
       text: event.text,
       isFinal: event.isFinal,
       ts: Date.now(),
@@ -194,7 +200,7 @@ class RTMPIngestImpl extends EventEmitter implements RTMPIngest {
     if (event.isFinal) {
       appendTranscriptChunk({
         sessionSlug: this.config.sessionSlug,
-        participantIdentity: event.speakerId ? `speaker_${event.speakerId}` : undefined,
+        participantIdentity: speakerIdentity !== 'room' ? speakerIdentity : undefined,
         utteranceId: event.utteranceId,
         text: event.text,
         isFinal: true,

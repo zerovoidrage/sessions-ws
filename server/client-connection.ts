@@ -14,6 +14,7 @@ import {
   recordError,
 } from './metrics'
 import { validateAudioChunk, cleanupClientTracker } from './audio-validator.js'
+import { updateActiveSpeaker, type ActiveSpeakerEvent } from './active-speaker-tracker.js'
 
 dotenv.config()
 
@@ -247,8 +248,30 @@ export function handleClientConnection({ ws, req }: ClientConnectionOptions): vo
       }
     })
 
-  // Обрабатываем аудио чанки от клиента
+  // Обрабатываем сообщения от клиента
   ws.on('message', (data: WebSocket.Data) => {
+    // Обрабатываем JSON сообщения (active speaker events)
+    if (typeof data === 'string' || (data instanceof Buffer && data[0] === 0x7B)) {
+      try {
+        const message = JSON.parse(data.toString())
+        
+        // Обрабатываем active speaker events
+        if (message.type === 'active_speaker') {
+          const speakerEvent: ActiveSpeakerEvent = {
+            sessionSlug,
+            participantIdentity: message.identity || participantIdentity,
+            participantName: message.name,
+            timestamp: message.timestamp || Date.now(),
+          }
+          updateActiveSpeaker(speakerEvent)
+          return
+        }
+      } catch (error) {
+        // Не JSON или невалидный JSON - игнорируем, возможно это аудио
+      }
+    }
+
+    // Обрабатываем аудио чанки (только если Gladia готов)
     if (!isGladiaReady || !gladiaBridge) {
       return
     }

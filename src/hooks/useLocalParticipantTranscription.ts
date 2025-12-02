@@ -1,6 +1,24 @@
 // src/hooks/useLocalParticipantTranscription.ts
 'use client'
 
+/**
+ * ВАЖНО: Клиентская транскрипция отключена в пользу серверной.
+ * 
+ * Теперь транскрипция происходит на сервере:
+ * - Серверный транскрайбер подключается к LiveKit комнате при переходе сессии в статус LIVE
+ * - Подписывается на все аудио треки участников
+ * - Микширует аудио и отправляет в Gladia
+ * - Публикует транскрипты через LiveKit data channel
+ * 
+ * Этот хук оставлен для обратной совместимости, но больше не захватывает микрофон
+ * и не отправляет аудио на WebSocket сервер.
+ * 
+ * Транскрипты по-прежнему приходят через LiveKit data channel и обрабатываются
+ * в useTranscriptStream.ts.
+ * 
+ * Функции start() и stop() теперь no-op - они не запускают реальную транскрипцию.
+ */
+
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Room, LocalParticipant, Track, ConnectionState } from 'livekit-client'
 import { connectTranscriptionWebSocket } from './utils/connectTranscriptionWebSocket'
@@ -10,6 +28,9 @@ import {
   isTranscriptionEnabledForSession,
   canStartTranscriptionForSession,
 } from '@/modules/core/sessions/infra/transcription/transcription-flags'
+
+// Флаг для отключения клиентской транскрипции (серверная транскрипция включена)
+const SERVER_TRANSCRIPTION_ENABLED = true
 
 interface UseLocalParticipantTranscriptionOptions {
   sessionSlug: string
@@ -701,6 +722,13 @@ export function useLocalParticipantTranscription({
         })
 
         // Подключаемся к WebSocket ДО создания AudioWorklet
+        // ВАЖНО: Если серверная транскрипция включена, клиентская транскрипция отключена
+        if (SERVER_TRANSCRIPTION_ENABLED) {
+          console.log('[Transcription] Server transcription enabled, skipping client-side WebSocket connection')
+          isStartingRef.current = false
+          return // Не запускаем клиентскую транскрипцию
+        }
+        
         let ws: WebSocket
         try {
           ws = await connectTranscriptionWebSocket(wsUrl, {
@@ -1090,6 +1118,12 @@ export function useLocalParticipantTranscription({
           // Для production без явного порта - используем стандартный порт (443 для WSS, не указываем в URL)
           
           const reconnectWsUrl = `${reconnectWsProtocol}://${reconnectWsHost}${reconnectPortSuffix}/api/realtime/transcribe?token=${encodeURIComponent(transcriptionTokenRef.current)}`
+          
+          // ВАЖНО: Если серверная транскрипция включена, не переподключаемся
+          if (SERVER_TRANSCRIPTION_ENABLED) {
+            console.log('[Transcription] Server transcription enabled, skipping WebSocket reconnection')
+            return
+          }
           
           try {
             const newWs = await connectTranscriptionWebSocket(reconnectWsUrl, {

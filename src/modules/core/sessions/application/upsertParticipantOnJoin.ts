@@ -42,6 +42,25 @@ export async function upsertParticipantOnJoin(
       startedAt: now,
       lastActivityAt: now,
     })
+
+    // Запускаем серверную транскрипцию при первом подключении участника
+    // Используем HTTP API вызов к WebSocket серверу
+    try {
+      const wsServerUrl = process.env.WS_SERVER_URL || 'http://localhost:3001'
+      const response = await fetch(`${wsServerUrl}/api/transcription/start`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId: input.sessionId, sessionSlug: session.slug }),
+      })
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: response.statusText }))
+        throw new Error(`Failed to start server transcription: ${errorData.error || response.statusText}`)
+      }
+      console.log(`[upsertParticipantOnJoin] Server transcription initiated via HTTP API for session ${input.sessionId}`)
+    } catch (error) {
+      console.error(`[upsertParticipantOnJoin] Failed to start server transcription:`, error)
+      // Не прерываем процесс - транскрипция не критична для подключения участника
+    }
   } else {
     // При любом join обновляем lastActivityAt
     await updateSessionActivity(input.sessionId, now)

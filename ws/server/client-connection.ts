@@ -17,6 +17,58 @@ import { validateAudioChunk, cleanupClientTracker } from './audio-validator.js'
 
 dotenv.config()
 
+// Хранилище клиентов по сессиям для отправки транскриптов от серверной транскрипции
+const sessionClients = new Map<string, Set<WebSocket>>()
+
+/**
+ * Регистрирует клиента для сессии.
+ */
+function registerClientForSession(sessionSlug: string, ws: WebSocket): void {
+  if (!sessionClients.has(sessionSlug)) {
+    sessionClients.set(sessionSlug, new Set())
+  }
+  sessionClients.get(sessionSlug)!.add(ws)
+  
+  // Удаляем клиента при отключении
+  ws.on('close', () => {
+    const clients = sessionClients.get(sessionSlug)
+    if (clients) {
+      clients.delete(ws)
+      if (clients.size === 0) {
+        sessionClients.delete(sessionSlug)
+      }
+    }
+  })
+}
+
+/**
+ * Отправляет транскрипт всем клиентам сессии.
+ */
+export function broadcastToSessionClients(sessionSlug: string, payload: any): void {
+  const clients = sessionClients.get(sessionSlug)
+  if (!clients || clients.size === 0) {
+    return
+  }
+
+  const message = JSON.stringify(payload)
+  let sentCount = 0
+  
+  for (const ws of clients) {
+    if (ws.readyState === WebSocket.OPEN) {
+      try {
+        ws.send(message)
+        sentCount++
+      } catch (error) {
+        console.error('[WS-SERVER] Failed to send transcript to client:', error)
+      }
+    }
+  }
+  
+  if (sentCount > 0) {
+    incrementMessagesSent()
+  }
+}
+
 export interface ClientConnectionOptions {
   ws: WebSocket
   req: IncomingMessage
@@ -105,6 +157,9 @@ export function handleClientConnection({ ws, req }: ClientConnectionOptions): vo
     identity: participantIdentity,
     userId: tokenData.userId,
   })
+
+  // Регистрируем клиента для получения транскриптов от серверной транскрипции
+  registerClientForSession(sessionSlug, ws)
 
   // Увеличиваем счетчик активных соединений
   incrementConnections()

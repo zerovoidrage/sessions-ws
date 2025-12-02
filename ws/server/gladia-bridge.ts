@@ -18,6 +18,8 @@ export interface TranscriptEvent {
   isFinal: boolean
   startedAt: Date
   endedAt?: Date
+  speakerId?: string // Speaker ID от Gladia diarization (например, "speaker_0", "speaker_1")
+  speakerName?: string // Имя спикера (если доступно)
 }
 
 export interface GladiaBridge {
@@ -56,6 +58,18 @@ export async function createGladiaBridge(): Promise<GladiaBridge> {
           const isFinal = transcriptData.is_final === true
           const utteranceId = transcriptData.id || null
           
+          // Извлекаем speaker ID из diarization (если доступно)
+          // Gladia может возвращать speaker_id в utterance или в корне data
+          const speakerId = transcriptData.utterance.speaker_id || 
+                           transcriptData.speaker_id || 
+                           transcriptData.speaker || 
+                           undefined
+          
+          // Имя спикера (если доступно)
+          const speakerName = transcriptData.utterance.speaker_name || 
+                             transcriptData.speaker_name || 
+                             (speakerId ? `Speaker ${speakerId}` : undefined)
+          
           if (text && utteranceId && transcriptCallback) {
             transcriptCallback({
               utteranceId,
@@ -63,6 +77,8 @@ export async function createGladiaBridge(): Promise<GladiaBridge> {
               isFinal,
               startedAt: new Date(),
               endedAt: isFinal ? new Date() : undefined,
+              speakerId,
+              speakerName,
             })
           }
         }
@@ -108,6 +124,12 @@ async function initGladiaSession(apiKey: string): Promise<string> {
       messages_config: {
         receive_partial_transcripts: true,
       },
+      // Включаем speaker diarization (если поддерживается)
+      // Gladia может поддерживать diarization через параметр diarization или speaker_diarization
+      diarization: true, // Попытка включить diarization
+      // Альтернативные варианты параметров (зависит от версии API):
+      // speaker_diarization: true,
+      // enable_diarization: true,
     })
     
     const options = {

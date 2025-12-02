@@ -13,6 +13,10 @@ export interface Session {
   startedAt?: Date | null
   endedAt?: Date | null
   lastActivityAt?: Date | null
+  // Raw transcript storage in Vercel Blob
+  rawTranscriptBlobUrl?: string | null
+  rawTranscriptSizeBytes?: number | null
+  rawTranscriptReadyAt?: Date | null
 }
 
 export interface CreateSessionInput {

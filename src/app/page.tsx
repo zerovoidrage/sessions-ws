@@ -5,8 +5,8 @@ import { useState, useEffect } from 'react'
 import { Button } from '@/shared/ui/button'
 
 const texts = [
-  'say goodbye, google meet & zoom',
-  'sessions.ai - Native AI Meeting OS',
+  'say goodbye google meet & zoom',
+  'sessions.ai - Real-time AI-Driven Meeting OS',
 ]
 
 export default function HomePage() {
@@ -58,9 +58,13 @@ export default function HomePage() {
   return (
     <div className="min-h-screen bg-black flex items-center justify-center p-4">
       <div className="text-center animate-fade-in-up">
-        <h1 className="text-6xl md:text-9xl lg:text-xl leading-tight text-white-900 mb-2">
+        <h1 className={`text-6xl md:text-9xl lg:text-xl leading-tight mb-2 ${
+          currentTextIndex === 0 ? 'text-white-600' : 'text-white-900'
+        }`}>
           {displayText}
-          <span className="inline-block w-0.5 h-[1em] bg-white-900 ml-1 animate-blink" />
+          <span className={`inline-block w-0.5 h-[1em] ml-1 animate-blink ${
+            currentTextIndex === 0 ? 'bg-white-600' : 'bg-white-900'
+          }`} />
         </h1>
         <div className="mb-20" />
         <Button

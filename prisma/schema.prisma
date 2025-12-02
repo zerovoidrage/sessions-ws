@@ -97,6 +97,11 @@ model VideoSession {
   transcriptionUsage TranscriptionUsage[]
   analysis           SessionAnalysis?
 
+  // Raw transcript storage in Vercel Blob
+  rawTranscriptBlobUrl   String?   // URL на JSON в Vercel Blob
+  rawTranscriptSizeBytes Int?      // размер файла в байтах
+  rawTranscriptReadyAt   DateTime? // когда мы собрали и сохранили сырой транскрипт
+
   @@index([spaceId])
   @@index([createdByUserId])
   @@index([status])

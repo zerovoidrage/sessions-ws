@@ -26,6 +26,9 @@ export async function createSession(input: CreateSessionInput & { slug: string }
     startedAt: session.startedAt,
     endedAt: session.endedAt,
     lastActivityAt: session.lastActivityAt,
+    rawTranscriptBlobUrl: session.rawTranscriptBlobUrl,
+    rawTranscriptSizeBytes: session.rawTranscriptSizeBytes,
+    rawTranscriptReadyAt: session.rawTranscriptReadyAt,
   }
 }
 
@@ -47,6 +50,9 @@ export async function getSessionBySlug(input: GetSessionBySlugInput): Promise<Se
     startedAt: session.startedAt,
     endedAt: session.endedAt,
     lastActivityAt: session.lastActivityAt,
+    rawTranscriptBlobUrl: session.rawTranscriptBlobUrl,
+    rawTranscriptSizeBytes: session.rawTranscriptSizeBytes,
+    rawTranscriptReadyAt: session.rawTranscriptReadyAt,
   }
 }
 
@@ -93,6 +99,9 @@ export async function getSessionById(sessionId: string): Promise<Session | null>
     startedAt: session.startedAt,
     endedAt: session.endedAt,
     lastActivityAt: session.lastActivityAt,
+    rawTranscriptBlobUrl: session.rawTranscriptBlobUrl,
+    rawTranscriptSizeBytes: session.rawTranscriptSizeBytes,
+    rawTranscriptReadyAt: session.rawTranscriptReadyAt,
   }
 }
 
@@ -136,6 +145,9 @@ export async function updateSessionStatus(
     startedAt: session.startedAt,
     endedAt: session.endedAt,
     lastActivityAt: session.lastActivityAt,
+    rawTranscriptBlobUrl: session.rawTranscriptBlobUrl,
+    rawTranscriptSizeBytes: session.rawTranscriptSizeBytes,
+    rawTranscriptReadyAt: session.rawTranscriptReadyAt,
   }
 }
 

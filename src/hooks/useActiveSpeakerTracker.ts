@@ -37,11 +37,15 @@ export function useActiveSpeakerTracker({
     // Подключаемся к WebSocket серверу для отправки active speaker events
     const wsHost = process.env.NEXT_PUBLIC_WS_HOST || 'localhost'
     const wsProtocol = wsHost.includes('localhost') || wsHost.includes('127.0.0.1') ? 'ws' : 'wss'
-    const wsPort = process.env.NEXT_PUBLIC_WS_PORT
     const isProduction = wsProtocol === 'wss'
-    // Для Railway production: порт не указываем (проксируется на стандартный 443)
-    // Для dev или если порт явно указан: используем указанный порт или 3001
-    const portSuffix = wsPort && wsPort !== '' ? `:${wsPort}` : (isProduction ? '' : ':3001')
+    
+    // Для production (wss): порт не указываем (HTTPS/WSS проксируется на стандартный 443)
+    // Для dev: используем указанный порт или 3001 по умолчанию
+    let portSuffix = ''
+    if (!isProduction) {
+      const wsPort = process.env.NEXT_PUBLIC_WS_PORT
+      portSuffix = wsPort && wsPort !== '' ? `:${wsPort}` : ':3001'
+    }
     const wsUrl = `${wsProtocol}://${wsHost}${portSuffix}/api/realtime/transcribe?token=${encodeURIComponent(transcriptionToken)}`
 
     let ws: WebSocket | null = null

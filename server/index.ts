@@ -149,8 +149,9 @@ server.on('request', (req, res) => {
   }
 
   // Для всех остальных запросов возвращаем 404
+  console.warn(`[WS-SERVER] 404: ${req.method} ${req.url} not found`)
   res.statusCode = 404
-  res.end(JSON.stringify({ error: 'Not found' }))
+  res.end(JSON.stringify({ error: 'Not found', path: req.url, method: req.method }))
 })
 
 const wss = new WebSocketServer({

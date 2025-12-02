@@ -87,7 +87,7 @@ interface TranscriptionTokenPayload {
  * @param token - JWT токен из query параметра
  * @returns Данные из токена или null, если токен невалиден
  */
-function verifyTranscriptionToken(token: string): {
+export function verifyTranscriptionToken(token: string): {
   sessionSlug: string
   identity: string
   userId?: string

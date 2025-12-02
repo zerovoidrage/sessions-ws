@@ -141,6 +141,50 @@ server.on('request', (req, res) => {
     return
   }
 
+  // API endpoint для active speaker events (HTTP вместо WebSocket для лучшей совместимости с Railway)
+  if (req.url?.startsWith('/api/active-speaker') && req.method === 'POST') {
+    let body = ''
+    req.on('data', (chunk) => { body += chunk.toString() })
+    req.on('end', async () => {
+      try {
+        const data = JSON.parse(body)
+        const { sessionSlug, identity, name, timestamp, token } = data
+
+        if (!sessionSlug || !identity || !token) {
+          res.statusCode = 400
+          res.end(JSON.stringify({ error: 'Missing required fields: sessionSlug, identity, token' }))
+          return
+        }
+
+        // Валидируем токен (используем тот же метод, что и для WebSocket)
+        const { verifyTranscriptionToken } = await import('./client-connection.js')
+        const tokenData = await Promise.resolve(verifyTranscriptionToken(token))
+        if (!tokenData) {
+          res.statusCode = 401
+          res.end(JSON.stringify({ error: 'Invalid or expired transcription token' }))
+          return
+        }
+
+        // Обновляем активного спикера
+        const { updateActiveSpeaker } = await import('./active-speaker-tracker.js')
+        updateActiveSpeaker({
+          sessionSlug,
+          participantIdentity: identity,
+          participantName: name,
+          timestamp: timestamp || Date.now(),
+        })
+
+        res.statusCode = 200
+        res.end(JSON.stringify({ success: true }))
+      } catch (error: any) {
+        console.error('[WS-SERVER] Error processing active speaker event:', error)
+        res.statusCode = 500
+        res.end(JSON.stringify({ error: error.message || 'Failed to process active speaker event' }))
+      }
+    })
+    return
+  }
+
   // Root endpoint - информация о сервере
   if (req.url === '/' && req.method === 'GET') {
     res.statusCode = 200

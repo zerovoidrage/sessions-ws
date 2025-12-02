@@ -162,6 +162,31 @@ export function handleClientConnection({ ws, req }: ClientConnectionOptions): vo
   // Клиенты просто регистрируются и получают транскрипты, которые отправляются через broadcastToSessionClients
   registerClientForSession(sessionSlug, ws)
 
+  // Отправляем initial message клиенту, чтобы подтвердить успешное подключение
+  try {
+    ws.send(JSON.stringify({
+      type: 'connected',
+      sessionSlug,
+      message: 'WebSocket connection established',
+    }))
+  } catch (error) {
+    console.error('[WS-SERVER] Failed to send initial message:', error)
+  }
+
+  // Настраиваем ping/pong для поддержания соединения живым
+  const pingInterval = setInterval(() => {
+    if (ws.readyState === WebSocket.OPEN) {
+      try {
+        ws.ping()
+      } catch (error) {
+        console.error('[WS-SERVER] Failed to send ping:', error)
+        clearInterval(pingInterval)
+      }
+    } else {
+      clearInterval(pingInterval)
+    }
+  }, 30000) // Ping каждые 30 секунд
+
   // Увеличиваем счетчик активных соединений
   incrementConnections()
 
@@ -196,6 +221,9 @@ export function handleClientConnection({ ws, req }: ClientConnectionOptions): vo
   ws.on('close', () => {
     console.log('[WS-SERVER] Client disconnected')
     
+    // Очищаем ping interval
+    clearInterval(pingInterval)
+    
     // Очищаем трекер для клиента
     if (participantIdentity) {
       cleanupClientTracker(participantIdentity)
@@ -210,6 +238,8 @@ export function handleClientConnection({ ws, req }: ClientConnectionOptions): vo
     const errorMsg = error instanceof Error ? error.message : String(error)
     console.error('[WS-SERVER] Client WebSocket error:', error)
     recordError(`Client WebSocket error: ${errorMsg}`)
+    // Очищаем ping interval
+    clearInterval(pingInterval)
     // Уменьшаем счетчик соединений
     decrementConnections()
     // НЕ закрываем Gladia bridge - он управляется серверной транскрипцией (1 на комнату)

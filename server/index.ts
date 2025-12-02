@@ -319,18 +319,17 @@ server.listen(port, async () => {
   
   // Запускаем глобальный RTMP сервер для Room Composite Egress
   // ВАЖНО: RTMP сервер слушает на отдельном порту (1935), не на process.env.PORT
-  // Если порт 1935 занят (например, Railway установил PORT=1935), RTMP сервер не запустится
-  // Это не критично - HTTP/WebSocket сервер продолжит работать
-  try {
-    await startGlobalRTMPServer()
-    console.log(`[WS-SERVER] ✅ RTMP server started for Room Composite Egress`)
-  } catch (error: any) {
-    // Если ошибка EADDRINUSE на порту 1935, это означает, что Railway установил PORT=1935
-    // Это нормально - RTMP сервер не нужен, если HTTP сервер уже слушает на 1935
-    if (error?.code === 'EADDRINUSE' && error?.port === 1935) {
-      console.warn(`[WS-SERVER] ⚠️ RTMP port 1935 is already in use (likely Railway set PORT=1935). RTMP server will not start.`)
-      console.warn(`[WS-SERVER] ⚠️ Room Composite Egress transcription will not work. Check Railway Settings → Networking: HTTP/WebSocket should use DEFAULT port, RTMP should use separate TCP proxy on port 1935.`)
-    } else {
+  // Если Railway установил PORT=1935, HTTP сервер уже слушает на 1935, и RTMP сервер не сможет запуститься
+  // В этом случае пропускаем запуск RTMP сервера
+  if (port === 1935) {
+    console.warn(`[WS-SERVER] ⚠️ Skipping RTMP server startup: PORT=${port} (HTTP/WebSocket server is already using this port)`)
+    console.warn(`[WS-SERVER] ⚠️ Room Composite Egress transcription will not work.`)
+    console.warn(`[WS-SERVER] ⚠️ To fix: In Railway Settings → Networking, set HTTP/WebSocket port to DEFAULT, and add separate TCP proxy on port 1935 for RTMP.`)
+  } else {
+    try {
+      await startGlobalRTMPServer()
+      console.log(`[WS-SERVER] ✅ RTMP server started for Room Composite Egress`)
+    } catch (error: any) {
       console.error(`[WS-SERVER] ❌ Failed to start RTMP server:`, error)
       console.warn(`[WS-SERVER] Room Composite Egress transcription will not work without RTMP server`)
     }

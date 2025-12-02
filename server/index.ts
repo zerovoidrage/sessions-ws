@@ -13,20 +13,23 @@ const server = http.createServer()
 
 // HTTP endpoint для метрик
 server.on('request', (req, res) => {
+  // Логируем ВСЕ входящие запросы в самом начале
+  console.log(`[WS-SERVER] 🔵 HTTP REQUEST: ${req.method} ${req.url}`, {
+    host: req.headers.host,
+    upgrade: req.headers.upgrade,
+    'user-agent': req.headers['user-agent'],
+    'content-type': req.headers['content-type'],
+  })
+
   // Пропускаем WebSocket upgrade запросы - их обрабатывает WebSocketServer
   // WebSocketServer слушает событие 'upgrade', которое срабатывает ДО события 'request'
   // Но на всякий случай проверяем заголовок upgrade
   if (req.headers.upgrade === 'websocket') {
     // Не обрабатываем WebSocket запросы в HTTP обработчике
     // WebSocketServer обработает их через событие 'upgrade'
+    console.log(`[WS-SERVER] ⚪ Skipping WebSocket upgrade request`)
     return
   }
-
-  // Логируем все входящие HTTP запросы для отладки
-  console.log(`[WS-SERVER] HTTP ${req.method} ${req.url}`, {
-    host: req.headers.host,
-    upgrade: req.headers.upgrade,
-  })
 
   // CORS headers для возможности доступа из браузера (опционально)
   res.setHeader('Access-Control-Allow-Origin', '*')

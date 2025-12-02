@@ -33,6 +33,12 @@ PORT=3001  # Опционально, Railway установит автомати
 LIVEKIT_API_KEY=your_key
 LIVEKIT_API_SECRET=your_secret
 LIVEKIT_HTTP_URL=https://your-project.livekit.cloud
+# ИЛИ используйте NEXT_PUBLIC_LIVEKIT_URL (будет автоматически преобразован wss:// -> https://)
+# NEXT_PUBLIC_LIVEKIT_URL=wss://your-project.livekit.cloud
+
+# WebSocket токены транскрипции
+TRANSCRIPTION_JWT_SECRET=your_jwt_secret
+# Можно использовать тот же секрет, что и для NextAuth
 
 # Gladia
 GLADIA_API_KEY=your_key

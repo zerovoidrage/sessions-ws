@@ -124,12 +124,9 @@ async function initGladiaSession(apiKey: string): Promise<string> {
       messages_config: {
         receive_partial_transcripts: true,
       },
-      // Включаем speaker diarization (если поддерживается)
-      // Gladia может поддерживать diarization через параметр diarization или speaker_diarization
-      diarization: true, // Попытка включить diarization
-      // Альтернативные варианты параметров (зависит от версии API):
-      // speaker_diarization: true,
-      // enable_diarization: true,
+      // Примечание: Gladia live API не поддерживает diarization
+      // Diarization доступен только в file-based API (post-call analysis)
+      // Для real-time транскрипции используем только базовую транскрипцию
     })
     
     const options = {

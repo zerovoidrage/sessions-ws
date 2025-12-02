@@ -220,12 +220,12 @@ class RTMPIngestImpl extends EventEmitter implements RTMPIngest {
     const speakerName = activeSpeaker?.name || 'Meeting'
 
     // 1. Отправляем транскрипт всем подключенным клиентам сессии
-    broadcastToSessionClients(this.config.sessionId, {
+    broadcastToSessionClients(this.config.sessionSlug, {
       type: 'transcription',
       speakerId: speakerIdentity,
       speakerName: speakerName,
       text: event.text,
-      isFinal: event.isFinal,
+      is_final: event.isFinal, // Клиент ожидает snake_case
       ts: Date.now(),
       utterance_id: event.utteranceId,
     })

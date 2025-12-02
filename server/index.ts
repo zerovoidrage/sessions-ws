@@ -5,8 +5,9 @@ import { getMetrics } from './metrics.js'
 import { getQueueMetrics, flushAllPending, stopFlushTimer } from './transcript-batch-queue.js'
 import { startGlobalRTMPServer } from './rtmp-server.js'
 
-// Render использует переменную PORT, но можем использовать WS_PORT как fallback
-const PORT = process.env.PORT || process.env.WS_PORT || 3001
+// Используем PORT из окружения (Railway автоматически устанавливает его)
+// Fallback на 3001 только для локальной разработки
+const port = Number(process.env.PORT) || 3001
 
 // Создаем HTTP сервер для WebSocket upgrade
 const server = http.createServer()
@@ -211,10 +212,9 @@ server.on('request', (req, res) => {
       status: 'ok', 
       message: 'Server is running',
       timestamp: new Date().toISOString(),
-      port: PORT,
+      port: port,
       env: {
         PORT: process.env.PORT,
-        WS_PORT: process.env.WS_PORT,
         NODE_ENV: process.env.NODE_ENV,
       }
     }))
@@ -227,12 +227,30 @@ server.on('request', (req, res) => {
   res.end(JSON.stringify({ error: 'Not found', path: req.url, method: req.method }))
 })
 
+// WebSocketServer автоматически обрабатывает upgrade запросы для указанного path
+// Но добавляем явный обработчик для логирования и отладки
+server.on('upgrade', (request, socket, head) => {
+  const pathname = new URL(request.url || '', `http://${request.headers.host}`).pathname
+  
+  console.log(`[WS-SERVER] 🔄 Upgrade request: ${pathname}`, {
+    headers: {
+      upgrade: request.headers.upgrade,
+      connection: request.headers.connection,
+      'sec-websocket-key': request.headers['sec-websocket-key']?.substring(0, 20) + '...',
+    }
+  })
+  
+  // WebSocketServer обработает upgrade для /api/realtime/transcribe
+  // и для /egress/audio/*
+})
+
 const wss = new WebSocketServer({
   server,
   path: '/api/realtime/transcribe',
 })
 
 wss.on('connection', (ws, req: http.IncomingMessage) => {
+  console.log(`[WS-SERVER] ✅ WebSocket connection established: ${req.url}`)
   handleClientConnection({ ws, req })
 })
 
@@ -276,10 +294,11 @@ egressWss.on('connection', (ws, req: http.IncomingMessage) => {
     })
 })
 
-server.listen(PORT, async () => {
-  console.log(`[WS-SERVER] WebSocket server listening on port ${PORT}`)
-  console.log(`[WS-SERVER] Metrics endpoint: http://localhost:${PORT}/metrics`)
-  console.log(`[WS-SERVER] Health check: http://localhost:${PORT}/health`)
+server.listen(port, async () => {
+  console.log(`[WS-SERVER] ✅ WebSocket server running on port ${port}`)
+  console.log(`[WS-SERVER] Metrics endpoint: http://localhost:${port}/metrics`)
+  console.log(`[WS-SERVER] Health check: http://localhost:${port}/health`)
+  console.log(`[WS-SERVER] WebSocket endpoint: ws://localhost:${port}/api/realtime/transcribe`)
   
   // Запускаем глобальный RTMP сервер для Room Composite Egress
   try {

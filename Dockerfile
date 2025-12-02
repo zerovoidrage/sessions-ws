@@ -16,17 +16,18 @@ RUN apt-get update && \
 # Устанавливаем рабочую директорию
 WORKDIR /app
 
-# Копируем package.json
+# Копируем package.json и prisma схему (нужна для generate)
 COPY package.json ./
+COPY prisma ./prisma
 
 # Устанавливаем зависимости (используем npm install, так как нет package-lock.json)
 RUN npm install --omit=dev
 
+# Генерируем Prisma Client (prisma теперь в dependencies)
+RUN npx prisma generate
+
 # Копируем остальные файлы
 COPY . .
-
-# Генерируем Prisma Client
-RUN npx prisma generate
 
 # Открываем порты
 EXPOSE 8000 1935

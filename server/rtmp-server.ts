@@ -93,8 +93,15 @@ class RTMPServer extends EventEmitter {
         this.isRunning = true
         resolve()
       })
-      this.nms.on('error', (error: Error) => {
-        console.error(`[RTMPServer] RTMP server error:`, error)
+      this.nms.on('error', (error: any) => {
+        // Если ошибка EADDRINUSE, это означает, что порт уже занят (возможно, HTTP сервер слушает на этом порту)
+        if (error?.code === 'EADDRINUSE') {
+          console.error(`[RTMPServer] ❌ Port ${this.rtmpPort} is already in use. RTMP server cannot start.`)
+          console.error(`[RTMPServer] This usually means Railway set PORT=${this.rtmpPort} for HTTP server.`)
+          console.error(`[RTMPServer] Solution: In Railway Settings → Networking, set HTTP/WebSocket port to DEFAULT, add separate TCP proxy on port ${this.rtmpPort} for RTMP.`)
+        } else {
+          console.error(`[RTMPServer] RTMP server error:`, error)
+        }
         reject(error)
       })
       

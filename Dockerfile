@@ -1,9 +1,15 @@
 # Используем официальный Node.js образ
 FROM node:22-slim
 
-# Устанавливаем FFmpeg и необходимые зависимости
+# Устанавливаем FFmpeg, инструменты сборки и зависимости для opus
 RUN apt-get update && \
-    apt-get install -y ffmpeg && \
+    apt-get install -y \
+        ffmpeg \
+        build-essential \
+        python3 \
+        pkg-config \
+        libopus-dev \
+    && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 

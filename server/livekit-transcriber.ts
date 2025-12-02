@@ -7,28 +7,14 @@
  * Транскрипты публикуются через LiveKit data channel для всех участников комнаты.
  */
 
-import { Room, RoomEvent, RemoteTrack, RemoteTrackPublication, RemoteParticipant, Track } from 'livekit-client'
-import { AccessToken } from 'livekit-server-sdk'
-import { createGladiaBridge, type TranscriptEvent } from './gladia-bridge.js'
-import { appendTranscriptChunk } from './append-transcript-chunk.js'
-import { AudioProcessor } from './audio-processor.js'
+// Импорты для серверной транскрипции через Egress API
+// livekit-client не используется - это браузерный SDK, не работает в Node.js
 import dotenv from 'dotenv'
 
 dotenv.config()
 
-// Конфигурация LiveKit для серверного окружения
-const livekitEnv = {
-  apiKey: process.env.LIVEKIT_API_KEY!,
-  apiSecret: process.env.LIVEKIT_API_SECRET!,
-  wsUrl: process.env.NEXT_PUBLIC_LIVEKIT_URL!,
-}
-
-if (!livekitEnv.apiKey || !livekitEnv.apiSecret || !livekitEnv.wsUrl) {
-  console.warn('[ServerTranscriber] Missing LIVEKIT env vars')
-}
-
-// Полифиллы для WebRTC в Node.js (если нужны)
-// import 'wrtc' // или другой полифилл
+// Конфигурация LiveKit для серверного окружения (используется только в Egress API)
+// livekit-client больше не используется - используем только livekit-server-sdk
 
 export interface StartServerTranscriptionOptions {
   sessionId: string
@@ -41,7 +27,7 @@ export interface ServerTranscriber {
 }
 
 // Хранилище активных транскрайберов
-const activeTranscribers = new Map<string, ServerTranscriberImpl>()
+const activeTranscribers = new Map<string, ServerTranscriber>()
 
 /**
  * Запускает серверную транскрипцию для сессии.
@@ -147,242 +133,6 @@ export function isServerTranscriptionActive(sessionId: string): boolean {
   return activeTranscribers.has(sessionId) && activeTranscribers.get(sessionId)!.isActive()
 }
 
-class ServerTranscriberImpl implements ServerTranscriber {
-  private room: Room | null = null
-  private gladiaBridge: Awaited<ReturnType<typeof createGladiaBridge>> | null = null
-  private audioProcessors = new Map<string, AudioProcessor>() // participant identity -> processor
-  private globalAudioProcessor = new AudioProcessor() // Для микширования всех потоков
-  private isActiveFlag = false
-  private audioTrackBuffers = new Map<string, Buffer[]>() // participant identity -> audio chunks
-  private audioProcessingInterval: NodeJS.Timeout | null = null
-
-  constructor(
-    private sessionId: string,
-    private sessionSlug: string
-  ) {}
-
-  async start(): Promise<void> {
-    try {
-      // 1. Генерируем токен для транскрайбера
-      const token = this.generateTranscriberToken()
-
-      // 2. Создаём комнату и подключаемся
-      this.room = new Room()
-      await this.room.connect(livekitEnv.wsUrl, token)
-
-      console.log(`[ServerTranscriber] Connected to room ${this.sessionSlug}`)
-
-      // 3. Инициализируем Gladia bridge
-      this.gladiaBridge = await createGladiaBridge()
-      this.gladiaBridge.onTranscript((event) => this.handleTranscript(event))
-
-      // 4. Создаём аудио контекст для микширования
-      // В Node.js это может потребовать полифиллы или альтернативный подход
-      // Пока используем упрощённый подход: берём первый доступный аудио трек
-      this.setupAudioCapture()
-
-      // 5. Подписываемся на события комнаты
-      this.setupRoomEventHandlers()
-
-      this.isActiveFlag = true
-    } catch (error) {
-      console.error(`[ServerTranscriber] Failed to start transcription:`, error)
-      await this.cleanup()
-      throw error
-    }
-  }
-
-  async stop(): Promise<void> {
-    await this.cleanup()
-    this.isActiveFlag = false
-  }
-
-  isActive(): boolean {
-    return this.isActiveFlag
-  }
-
-  private generateTranscriberToken(): string {
-    if (!livekitEnv.apiKey || !livekitEnv.apiSecret) {
-      throw new Error('LiveKit env not configured')
-    }
-
-    const identity = `transcriber-${this.sessionId}`
-    const at = new AccessToken(livekitEnv.apiKey, livekitEnv.apiSecret, {
-      identity,
-      name: 'Server Transcriber',
-    })
-
-    at.addGrant({
-      room: this.sessionSlug,
-      roomJoin: true,
-      canPublish: false, // Транскрайбер не публикует медиа
-      canSubscribe: true, // Транскрайбер подписывается на аудио треки
-    })
-
-    return at.toJwt()
-  }
-
-  private setupRoomEventHandlers(): void {
-    if (!this.room) return
-
-    // Подписываемся на новые треки участников
-    this.room.on(RoomEvent.TrackSubscribed, (track: RemoteTrack, publication: RemoteTrackPublication, participant: RemoteParticipant) => {
-      if (track.kind === Track.Kind.Audio && track.source === Track.Source.Microphone) {
-        console.log(`[ServerTranscriber] Audio track subscribed from ${participant.identity}`)
-        this.handleAudioTrack(track, participant)
-      }
-    })
-
-    // Обрабатываем уже существующие треки при подключении
-    this.room.remoteParticipants.forEach((participant) => {
-      participant.audioTrackPublications.forEach((publication) => {
-        if (publication.isSubscribed && publication.track) {
-          const track = publication.track
-          if (track.kind === Track.Kind.Audio && track.source === Track.Source.Microphone) {
-            this.handleAudioTrack(track, participant)
-          }
-        }
-      })
-    })
-  }
-
-  private setupAudioCapture(): void {
-    // Настраиваем периодическую отправку микшированного аудио в Gladia
-    // Это будет работать, когда мы получим аудио данные из треков
-    this.startAudioProcessingLoop()
-  }
-
-  private startAudioProcessingLoop(): void {
-    // Периодически обрабатываем накопленные аудио чанки
-    this.audioProcessingInterval = setInterval(() => {
-      if (!this.isActiveFlag || !this.gladiaBridge) {
-        if (this.audioProcessingInterval) {
-          clearInterval(this.audioProcessingInterval)
-          this.audioProcessingInterval = null
-        }
-        return
-      }
-
-      this.processMixedAudio()
-    }, 200) // Каждые 200ms обрабатываем аудио
-  }
-
-  private processMixedAudio(): void {
-    // Собираем все аудио чанки от всех участников
-    const allChunks: Buffer[] = []
-    
-    for (const chunks of this.audioTrackBuffers.values()) {
-      if (chunks.length > 0) {
-        allChunks.push(...chunks)
-      }
-    }
-
-    // Очищаем буферы
-    this.audioTrackBuffers.clear()
-
-    if (allChunks.length === 0) {
-      return
-    }
-
-    // Микшируем все чанки в один
-    const mixed = AudioProcessor.mixBuffers(allChunks)
-    
-    // Отправляем в Gladia
-    if (this.gladiaBridge && mixed.length > 0) {
-      this.gladiaBridge.sendAudio(mixed)
-    }
-  }
-
-  private handleAudioTrack(track: RemoteTrack, participant: RemoteParticipant): void {
-    console.log(`[ServerTranscriber] Handling audio track from ${participant.identity}`)
-    
-    // Создаём процессор для этого участника
-    if (!this.audioProcessors.has(participant.identity)) {
-      this.audioProcessors.set(participant.identity, new AudioProcessor())
-      this.audioTrackBuffers.set(participant.identity, [])
-    }
-
-    // ВАЖНО: В Node.js мы не можем напрямую получить аудио данные из RemoteTrack
-    // без полифиллов WebRTC или LiveKit Egress API.
-    // 
-    // Варианты реализации:
-    // 1. Использовать LiveKit Egress API для получения аудио потока
-    // 2. Использовать полифиллы WebRTC (wrtc, node-webrtc) для работы с треками
-    // 3. Использовать отдельный процесс с браузером (puppeteer) для захвата аудио
-    //
-    // Пока оставляем заглушку - реальная реализация потребует одного из этих подходов
-    
-    // Для временной работы можно использовать подход с WebSocket от клиентов,
-    // но это противоречит требованию "браузер больше не шлёт аудио на STT-сервер"
-    
-    console.warn(`[ServerTranscriber] Audio track processing not fully implemented - requires WebRTC polyfills or Egress API`)
-  }
-
-  private handleTranscript(event: TranscriptEvent): void {
-    if (!this.room || !this.gladiaBridge) return
-
-    // 1. Публикуем транскрипт через LiveKit data channel
-    const payload = {
-      type: 'transcript',
-      speakerId: 'room', // Пока используем 'room' для серверной транскрипции
-      speakerName: 'Meeting',
-      text: event.text,
-      isFinal: event.isFinal,
-      ts: Date.now(),
-      utterance_id: event.utteranceId,
-    }
-
-    try {
-      // Публикуем через data channel для всех участников
-      this.room.localParticipant.publishData(
-        new TextEncoder().encode(JSON.stringify(payload)),
-        { reliable: true }
-      )
-    } catch (error) {
-      console.error('[ServerTranscriber] Failed to publish transcript via data channel:', error)
-    }
-
-    // 2. Сохраняем финальные транскрипты в БД
-    if (event.isFinal) {
-      appendTranscriptChunk({
-        sessionSlug: this.sessionSlug,
-        participantIdentity: undefined, // Серверная транскрипция не привязана к конкретному участнику
-        utteranceId: event.utteranceId,
-        text: event.text,
-        isFinal: true,
-        startedAt: event.startedAt,
-        endedAt: event.endedAt,
-        sessionId: this.sessionId,
-      }).catch((error) => {
-        console.error('[ServerTranscriber] Failed to append transcript chunk:', error)
-      })
-    }
-  }
-
-  private async cleanup(): Promise<void> {
-    // Останавливаем обработку аудио
-    if (this.audioProcessingInterval) {
-      clearInterval(this.audioProcessingInterval)
-      this.audioProcessingInterval = null
-    }
-
-    // Финальная обработка оставшихся аудио чанков
-    if (this.gladiaBridge) {
-      this.processMixedAudio()
-    }
-
-    if (this.gladiaBridge) {
-      this.gladiaBridge.close()
-      this.gladiaBridge = null
-    }
-
-    if (this.room) {
-      this.room.disconnect()
-      this.room = null
-    }
-
-    this.audioProcessors.clear()
-    this.audioTrackBuffers.clear()
-  }
-}
+// ServerTranscriberImpl класс удален - он использовал livekit-client (браузерный SDK),
+// который не работает в Node.js. Теперь используем только Egress API через livekit-server-sdk.
 

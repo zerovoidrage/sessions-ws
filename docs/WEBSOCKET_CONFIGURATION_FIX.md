@@ -75,28 +75,38 @@ server.listen(port, async () => {
 
 ```typescript
 // Определяем протокол и хост для WebSocket
-// Для production: используем NEXT_PUBLIC_WS_HOST без порта (Railway проксирует через 443)
-// Для dev: используем localhost:3001
+// Railway — это всегда TLS, поэтому для удалённого хоста всегда wss://
+// Для localhost используем ws:// с портом
 const wsHost = process.env.NEXT_PUBLIC_WS_HOST || 'localhost'
 const cleanHost = wsHost.replace(/^https?:\/\//, '').replace(/\/$/, '')
 
-const isLocal = cleanHost === 'localhost' || cleanHost.startsWith('127.0.0.1') || cleanHost.startsWith('192.168.')
-const isHttps = typeof window !== 'undefined' && window.location.protocol === 'https:'
+// Проверяем, является ли хост локальным
+const isRemoteHost = cleanHost !== 'localhost' && !cleanHost.startsWith('127.0.0.1') && !cleanHost.startsWith('192.168.')
 
-// Протокол: wss для HTTPS, ws для HTTP
-const wsProtocol = isHttps ? 'wss' : 'ws'
+// Протокол: для удалённого хоста (Railway) всегда wss, для localhost — зависит от window.location.protocol
+const wsProtocol = isRemoteHost
+  ? 'wss'
+  : (typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'wss' : 'ws')
 
-// Порт: только для локальной разработки
-const portSuffix = isLocal ? ':3001' : ''
+// Порт: только для локального хоста
+// Если указан NEXT_PUBLIC_WS_PORT, используем его, иначе fallback на 3001 для localhost
+const wsPort = process.env.NEXT_PUBLIC_WS_PORT
+const baseUrl = !isRemoteHost
+  ? `${wsProtocol}://${cleanHost}:${wsPort || '3001'}`
+  : `${wsProtocol}://${cleanHost}`
 
-const wsUrl = `${wsProtocol}://${cleanHost}${portSuffix}/api/realtime/transcribe?token=${encodeURIComponent(transcriptionToken)}`
+const wsUrl = `${baseUrl}/api/realtime/transcribe?token=${encodeURIComponent(transcriptionToken)}`
 ```
 
 **Логика:**
-- Production (HTTPS): `wss://sessions-ws-production.up.railway.app/api/realtime/transcribe?token=...`
-  - Без порта! Railway проксирует через 443
-- Dev (HTTP): `ws://localhost:3001/api/realtime/transcribe?token=...`
-  - С портом только для локальной разработки
+- **Production (Railway):** `wss://sessions-ws-production.up.railway.app/api/realtime/transcribe?token=...`
+  - Всегда `wss://` (Railway всегда TLS)
+  - Без порта (Railway проксирует через 443)
+  - Не зависит от `window.location.protocol` фронта
+  
+- **Dev (localhost):** `ws://localhost:3001/api/realtime/transcribe?token=...`
+  - `ws://` или `wss://` в зависимости от `window.location.protocol`
+  - С портом (`NEXT_PUBLIC_WS_PORT` или `3001` по умолчанию)
 
 #### `src/hooks/useActiveSpeakerTracker.ts`
 

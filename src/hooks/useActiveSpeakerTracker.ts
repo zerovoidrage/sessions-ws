@@ -16,7 +16,9 @@ interface UseActiveSpeakerTrackerOptions {
 }
 
 /**
- * Отслеживает активного спикера и отправляет события на WebSocket сервер.
+ * Отслеживает активного спикера и отправляет события на сервер через HTTP.
+ * 
+ * Использует HTTP POST запросы вместо WebSocket для лучшей совместимости с Railway.
  */
 export function useActiveSpeakerTracker({
   room,
@@ -25,56 +27,28 @@ export function useActiveSpeakerTracker({
   sessionSlug,
   transcriptionToken,
 }: UseActiveSpeakerTrackerOptions): void {
-  const wsRef = useRef<WebSocket | null>(null)
   const lastActiveSpeakerRef = useRef<string | null>(null)
   const checkIntervalRef = useRef<NodeJS.Timeout | null>(null)
+  const lastSentTimeRef = useRef<number>(0)
 
   useEffect(() => {
     if (!room || !sessionSlug || !transcriptionToken) {
       return
     }
 
-    // Подключаемся к WebSocket серверу для отправки active speaker events
+    // Определяем URL для HTTP API (более надежно, чем WebSocket на Railway)
     const wsHost = process.env.NEXT_PUBLIC_WS_HOST || 'localhost'
-    const wsProtocol = wsHost.includes('localhost') || wsHost.includes('127.0.0.1') ? 'ws' : 'wss'
-    const isProduction = wsProtocol === 'wss'
+    const isLocal = wsHost.includes('localhost') || wsHost.includes('127.0.0.1')
+    const protocol = isLocal ? 'http' : 'https'
     
-    // Для production (wss): порт не указываем (HTTPS/WSS проксируется на стандартный 443)
+    // Для production (HTTPS): порт не указываем (стандартный 443)
     // Для dev: используем указанный порт или 3001 по умолчанию
     let portSuffix = ''
-    if (!isProduction) {
+    if (isLocal) {
       const wsPort = process.env.NEXT_PUBLIC_WS_PORT
       portSuffix = wsPort && wsPort !== '' ? `:${wsPort}` : ':3001'
     }
-    const wsUrl = `${wsProtocol}://${wsHost}${portSuffix}/api/realtime/transcribe?token=${encodeURIComponent(transcriptionToken)}`
-
-    let ws: WebSocket | null = null
-
-    const connect = () => {
-      try {
-        ws = new WebSocket(wsUrl)
-        wsRef.current = ws
-
-        ws.onopen = () => {
-          console.log('[ActiveSpeakerTracker] WebSocket connected for active speaker tracking')
-        }
-
-        ws.onerror = (error) => {
-          console.error('[ActiveSpeakerTracker] WebSocket error:', error)
-        }
-
-        ws.onclose = () => {
-          console.log('[ActiveSpeakerTracker] WebSocket closed')
-          wsRef.current = null
-          // Переподключаемся через 2 секунды
-          setTimeout(connect, 2000)
-        }
-      } catch (error) {
-        console.error('[ActiveSpeakerTracker] Failed to connect:', error)
-      }
-    }
-
-    connect()
+    const apiBaseUrl = `${protocol}://${wsHost}${portSuffix}`
 
     // Функция для определения текущего активного спикера
     const getActiveSpeaker = (): { identity: string; name?: string } | null => {
@@ -96,19 +70,39 @@ export function useActiveSpeakerTracker({
       return null
     }
 
-    // Функция для отправки active speaker event
-    const sendActiveSpeakerEvent = (identity: string, name?: string) => {
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        try {
-          ws.send(JSON.stringify({
-            type: 'active_speaker',
+    // Функция для отправки active speaker event через HTTP
+    const sendActiveSpeakerEvent = async (identity: string, name?: string) => {
+      if (!transcriptionToken) {
+        return
+      }
+
+      // Дебаунс: не отправляем события чаще, чем раз в 500ms
+      const now = Date.now()
+      if (now - lastSentTimeRef.current < 500) {
+        return
+      }
+      lastSentTimeRef.current = now
+
+      try {
+        const response = await fetch(`${apiBaseUrl}/api/active-speaker`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            sessionSlug,
             identity,
             name,
-            timestamp: Date.now(),
-          }))
-        } catch (error) {
-          console.error('[ActiveSpeakerTracker] Failed to send active speaker event:', error)
+            timestamp: now,
+            token: transcriptionToken,
+          }),
+        })
+
+        if (!response.ok) {
+          console.error('[ActiveSpeakerTracker] Failed to send active speaker event:', response.status, response.statusText)
         }
+      } catch (error) {
+        console.error('[ActiveSpeakerTracker] Failed to send active speaker event:', error)
       }
     }
 
@@ -150,11 +144,7 @@ export function useActiveSpeakerTracker({
       
       room.off(RoomEvent.ParticipantConnected, handleParticipantConnected)
       room.off(RoomEvent.ParticipantDisconnected, handleParticipantDisconnected)
-      
-      if (ws) {
-        ws.close()
-        wsRef.current = null
-      }
+      // HTTP не требует закрытия соединения
     }
   }, [room, localParticipant, remoteParticipants, sessionSlug, transcriptionToken])
 }

@@ -47,18 +47,31 @@ export async function upsertParticipantOnJoin(
     // Используем HTTP API вызов к WebSocket серверу
     try {
       const wsServerUrl = process.env.WS_SERVER_URL || 'http://localhost:3001'
+      console.log(`[upsertParticipantOnJoin] Attempting to start server transcription for session ${input.sessionId} via ${wsServerUrl}/api/transcription/start`)
+      
       const response = await fetch(`${wsServerUrl}/api/transcription/start`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sessionId: input.sessionId, sessionSlug: session.slug }),
       })
+      
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ error: response.statusText }))
-        throw new Error(`Failed to start server transcription: ${errorData.error || response.statusText}`)
+        const errorText = await response.text().catch(() => response.statusText)
+        console.error(`[upsertParticipantOnJoin] Server transcription API returned ${response.status}: ${errorText}`)
+        throw new Error(`Failed to start server transcription: HTTP ${response.status} - ${errorText}`)
       }
-      console.log(`[upsertParticipantOnJoin] Server transcription initiated via HTTP API for session ${input.sessionId}`)
+      
+      const result = await response.json().catch(() => ({}))
+      console.log(`[upsertParticipantOnJoin] ✅ Server transcription initiated via HTTP API for session ${input.sessionId}`, result)
     } catch (error) {
-      console.error(`[upsertParticipantOnJoin] Failed to start server transcription:`, error)
+      console.error(`[upsertParticipantOnJoin] ❌ Failed to start server transcription for session ${input.sessionId}:`, error)
+      if (error instanceof Error) {
+        console.error(`[upsertParticipantOnJoin] Error details:`, {
+          message: error.message,
+          stack: error.stack,
+          wsServerUrl: process.env.WS_SERVER_URL || 'http://localhost:3001',
+        })
+      }
       // Не прерываем процесс - транскрипция не критична для подключения участника
     }
   } else {

@@ -39,6 +39,9 @@ next-env.d.ts
 # prisma
 /prisma/migrations
 
+# ws-server (отдельный репозиторий для Railway)
+/ws-server
+
 
 
 

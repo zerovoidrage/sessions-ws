@@ -7,6 +7,7 @@ import { Room, Track, ConnectionState, RoomEvent, LocalParticipant, RemotePartic
 import { TranscriptSidebar } from '@/components/call/TranscriptSidebar'
 import { TranscriptProvider, useTranscriptContext } from '@/contexts/TranscriptContext'
 import { useLocalParticipantTranscription } from '@/hooks/useLocalParticipantTranscription'
+import { useActiveSpeakerTracker } from '@/hooks/useActiveSpeakerTracker'
 import { useRoom } from '@/hooks/useRoom'
 import { useParticipants } from '@/hooks/useParticipants'
 import { useMediaControls } from '@/hooks/useMediaControls'
@@ -362,6 +363,17 @@ function SessionContentInner({
   // Используем контекст транскрипции для изоляции от остального UI
   // Контекст обрабатывает получение транскриптов через LiveKit data channel
   const { addMessage } = useTranscriptContext()
+  
+  // Отслеживание активного спикера для серверной транскрипции
+  // ВАЖНО: Подключается к WebSocket серверу для отправки active speaker events,
+  // даже если клиентская транскрипция отключена (SERVER_TRANSCRIPTION_ENABLED)
+  useActiveSpeakerTracker({
+    room,
+    localParticipant,
+    remoteParticipants,
+    sessionSlug,
+    transcriptionToken,
+  })
   
   console.log('[SessionContent] Transcript context initialized', {
     isTranscriptionHost,

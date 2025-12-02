@@ -227,8 +227,21 @@ server.on('request', (req, res) => {
   res.end(JSON.stringify({ error: 'Not found', path: req.url, method: req.method }))
 })
 
+// Создаём WebSocketServer ДО обработчика upgrade
 // WebSocketServer автоматически обрабатывает upgrade запросы для указанного path
-// Но добавляем явный обработчик для логирования и отладки
+const wss = new WebSocketServer({
+  server,
+  path: '/api/realtime/transcribe',
+})
+
+wss.on('connection', (ws, req: http.IncomingMessage) => {
+  console.log(`[WS-SERVER] ✅ WebSocket connection established: ${req.url}`)
+  handleClientConnection({ ws, req })
+})
+
+// Добавляем явный обработчик upgrade для логирования и отладки
+// ВАЖНО: WebSocketServer уже обрабатывает upgrade для своего path,
+// но мы добавляем логирование для всех upgrade запросов
 server.on('upgrade', (request, socket, head) => {
   const pathname = new URL(request.url || '', `http://${request.headers.host}`).pathname
   
@@ -240,18 +253,13 @@ server.on('upgrade', (request, socket, head) => {
     }
   })
   
-  // WebSocketServer обработает upgrade для /api/realtime/transcribe
-  // и для /egress/audio/*
-})
-
-const wss = new WebSocketServer({
-  server,
-  path: '/api/realtime/transcribe',
-})
-
-wss.on('connection', (ws, req: http.IncomingMessage) => {
-  console.log(`[WS-SERVER] ✅ WebSocket connection established: ${req.url}`)
-  handleClientConnection({ ws, req })
+  // WebSocketServer автоматически обработает upgrade для /api/realtime/transcribe
+  // и для /egress/audio/* через свои внутренние обработчики
+  // Если путь не соответствует ни одному WebSocketServer, закрываем соединение
+  if (!pathname.startsWith('/api/realtime/transcribe') && !pathname.startsWith('/egress/audio')) {
+    console.warn(`[WS-SERVER] ❌ Upgrade request for unknown path: ${pathname}`)
+    socket.destroy()
+  }
 })
 
 // WebSocket endpoint для получения аудио потока от LiveKit Track Egress

@@ -1,0 +1,15 @@
+# Nixpacks configuration for Railway
+# Устанавливает FFmpeg через системные пакеты
+
+[phases.setup]
+nixPkgs = ["nodejs_22", "ffmpeg"]
+
+[phases.install]
+cmds = ["npm ci --only=production", "npx prisma generate"]
+
+[phases.build]
+cmds = []
+
+[start]
+cmd = "npm start"
+

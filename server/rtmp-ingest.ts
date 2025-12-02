@@ -90,7 +90,20 @@ class RTMPIngestImpl extends EventEmitter implements RTMPIngest {
       // 4. Запускаем FFmpeg для приема RTMP потока (будет ждать подключения Egress)
       // FFmpeg будет пытаться подключиться к RTMP потоку
       // Когда Egress начнет стримить, FFmpeg автоматически подключится
-      await this.startFFmpegDecoder()
+      try {
+        await this.startFFmpegDecoder()
+      } catch (ffmpegError: any) {
+        // Если FFmpeg не установлен, не падаем полностью - просто логируем
+        // Транскрипция не будет работать, но сервер продолжит работать
+        if (ffmpegError?.code === 'ENOENT' || ffmpegError?.message?.includes('ENOENT')) {
+          console.error(`[RTMPIngest] ⚠️ FFmpeg not found. Transcription will not work until FFmpeg is installed.`)
+          console.error(`[RTMPIngest] Install FFmpeg in Railway: Add to Dockerfile or use nixpacks.toml`)
+          // Не бросаем ошибку - позволяем процессу продолжиться
+          // Egress все равно запустится, просто декодирование не будет работать
+        } else {
+          throw ffmpegError
+        }
+      }
 
       this.isActiveFlag = true
       console.log(`[RTMPIngest] ✅ Started for session ${this.config.sessionId}, RTMP URL: ${this.rtmpUrl}`)
@@ -106,6 +119,16 @@ class RTMPIngestImpl extends EventEmitter implements RTMPIngest {
     if (this.ffmpegProcess) {
       console.warn(`[RTMPIngest] FFmpeg decoder already running for session ${this.config.sessionId}`)
       return
+    }
+
+    // Проверяем наличие FFmpeg перед запуском
+    try {
+      const { execSync } = await import('child_process')
+      execSync('which ffmpeg', { stdio: 'ignore' })
+    } catch (error) {
+      const errorMsg = 'FFmpeg not found in PATH. Please install FFmpeg.'
+      console.error(`[RTMPIngest] ${errorMsg}`)
+      throw new Error(errorMsg)
     }
 
     // FFmpeg команда для декодирования RTMP → PCM16 16kHz mono
@@ -150,10 +173,19 @@ class RTMPIngestImpl extends EventEmitter implements RTMPIngest {
     this.ffmpegProcess.on('error', (error) => {
       console.error(`[RTMPIngest] FFmpeg process error:`, error)
       // Проверяем, установлен ли FFmpeg
-      if (error.message.includes('ENOENT')) {
-        console.error(`[RTMPIngest] FFmpeg not found. Please install FFmpeg: brew install ffmpeg (macOS) or apt-get install ffmpeg (Linux)`)
+      if (error.message.includes('ENOENT') || (error as any).code === 'ENOENT') {
+        const errorMsg = `[RTMPIngest] FFmpeg not found. Please install FFmpeg: brew install ffmpeg (macOS) or apt-get install ffmpeg (Linux)`
+        console.error(errorMsg)
+        // Не бросаем ошибку, которая убьет сервер - просто логируем
+        // Транскрипция не запустится, но сервер продолжит работать
+        // Останавливаем процесс, но не падаем
+        this.ffmpegProcess = null
+        this.isActiveFlag = false
+        return
       }
-      this.emit('error', error)
+      // Для других ошибок тоже не падаем - просто логируем
+      this.ffmpegProcess = null
+      this.isActiveFlag = false
     })
 
     this.ffmpegProcess.on('exit', (code, signal) => {

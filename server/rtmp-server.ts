@@ -85,7 +85,7 @@ class RTMPServer extends EventEmitter {
     })
 
     return new Promise((resolve, reject) => {
-      this.nms.run()
+      // Подписываемся на события ДО запуска
       this.nms.on('serverStarted', () => {
         console.log(`[RTMPServer] ✅ RTMP server started on port ${this.rtmpPort}`)
         this.isRunning = true
@@ -95,6 +95,18 @@ class RTMPServer extends EventEmitter {
         console.error(`[RTMPServer] RTMP server error:`, error)
         reject(error)
       })
+      
+      // Запускаем сервер
+      this.nms.run()
+      
+      // Fallback: если событие serverStarted не сработает, считаем что сервер запущен через небольшую задержку
+      setTimeout(() => {
+        if (!this.isRunning && this.nms) {
+          console.log(`[RTMPServer] ✅ RTMP server started on port ${this.rtmpPort} (fallback detection)`)
+          this.isRunning = true
+          resolve()
+        }
+      }, 1000)
     })
   }
 

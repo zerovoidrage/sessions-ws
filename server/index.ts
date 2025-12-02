@@ -204,6 +204,17 @@ server.listen(PORT, async () => {
     console.error(`[WS-SERVER] Failed to start RTMP server:`, error)
     console.warn(`[WS-SERVER] Room Composite Egress transcription will not work without RTMP server`)
   }
+  
+  // Graceful shutdown
+  process.on('SIGTERM', async () => {
+    console.log('[WS-SERVER] SIGTERM received, shutting down gracefully...')
+    await flushAllPending()
+    stopFlushTimer()
+    server.close(() => {
+      console.log('[WS-SERVER] HTTP server closed')
+      process.exit(0)
+    })
+  })
 })
 
 // Graceful shutdown: записываем все pending транскрипты перед завершением

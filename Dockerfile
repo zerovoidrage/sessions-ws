@@ -10,11 +10,11 @@ RUN apt-get update && \
 # Устанавливаем рабочую директорию
 WORKDIR /app
 
-# Копируем package.json и package-lock.json (если есть)
-COPY package*.json ./
+# Копируем package.json
+COPY package.json ./
 
-# Устанавливаем зависимости
-RUN npm ci --only=production
+# Устанавливаем зависимости (используем npm install, так как нет package-lock.json)
+RUN npm install --omit=dev
 
 # Копируем остальные файлы
 COPY . .

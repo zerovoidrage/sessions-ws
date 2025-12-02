@@ -11,13 +11,13 @@ import dotenv from 'dotenv'
 dotenv.config()
 
 function getLiveKitEnv() {
-  // Получаем URL из переменных окружения
-  let httpUrl = process.env.LIVEKIT_HTTP_URL || process.env.NEXT_PUBLIC_LIVEKIT_URL
+  // Используем WSS URL напрямую
+  const wsUrl = process.env.NEXT_PUBLIC_LIVEKIT_URL || process.env.LIVEKIT_HTTP_URL
   
-  // Преобразуем wss:// -> https:// и ws:// -> http://
+  // Для RoomServiceClient (REST API) нужно преобразовать WSS -> HTTPS
+  let httpUrl = wsUrl
   if (httpUrl) {
-    const originalUrl = httpUrl.trim()
-    httpUrl = originalUrl
+    httpUrl = httpUrl.trim()
       .replace(/^wss:\/\//, 'https://')
       .replace(/^ws:\/\//, 'http://')
   }
@@ -25,15 +25,15 @@ function getLiveKitEnv() {
   const apiKey = process.env.LIVEKIT_API_KEY
   const apiSecret = process.env.LIVEKIT_API_SECRET
 
-  if (!httpUrl || !apiKey || !apiSecret) {
+  if (!wsUrl || !apiKey || !apiSecret) {
     const missing = []
-    if (!httpUrl) missing.push('LIVEKIT_HTTP_URL or NEXT_PUBLIC_LIVEKIT_URL')
+    if (!wsUrl) missing.push('NEXT_PUBLIC_LIVEKIT_URL or LIVEKIT_HTTP_URL')
     if (!apiKey) missing.push('LIVEKIT_API_KEY')
     if (!apiSecret) missing.push('LIVEKIT_API_SECRET')
     throw new Error(`Missing required LiveKit environment variables: ${missing.join(', ')}`)
   }
 
-  return { httpUrl, apiKey, apiSecret }
+  return { wsUrl, httpUrl, apiKey, apiSecret }
 }
 
 export interface SpeakerMapping {

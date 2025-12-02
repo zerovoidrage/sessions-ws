@@ -21,14 +21,16 @@ import dotenv from 'dotenv'
 dotenv.config()
 
 // Конфигурация LiveKit для серверного окружения
-// Преобразуем URL в HTTP формат (wss:// -> https://)
+// Используем WSS URL напрямую
+const wsUrl = process.env.NEXT_PUBLIC_LIVEKIT_URL || process.env.LIVEKIT_HTTP_URL
+
+// Для EgressClient (REST API) нужно преобразовать WSS -> HTTPS
 function getHttpUrl(): string {
-  const url = process.env.LIVEKIT_HTTP_URL || process.env.NEXT_PUBLIC_LIVEKIT_URL
-  if (!url) {
-    throw new Error('LIVEKIT_HTTP_URL or NEXT_PUBLIC_LIVEKIT_URL must be set')
+  if (!wsUrl) {
+    throw new Error('NEXT_PUBLIC_LIVEKIT_URL or LIVEKIT_HTTP_URL must be set')
   }
-  // Преобразуем wss:// -> https:// и ws:// -> http://
-  return url.trim()
+  // Преобразуем только для EgressClient (REST API требует HTTPS)
+  return wsUrl.trim()
     .replace(/^wss:\/\//, 'https://')
     .replace(/^ws:\/\//, 'http://')
 }
@@ -36,7 +38,7 @@ function getHttpUrl(): string {
 const livekitEnv = {
   apiKey: process.env.LIVEKIT_API_KEY!,
   apiSecret: process.env.LIVEKIT_API_SECRET!,
-  wsUrl: process.env.NEXT_PUBLIC_LIVEKIT_URL!,
+  wsUrl: wsUrl!,
   httpUrl: getHttpUrl(),
 }
 

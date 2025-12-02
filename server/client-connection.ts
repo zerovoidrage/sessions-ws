@@ -2,18 +2,15 @@ import { WebSocket } from 'ws'
 import { IncomingMessage } from 'http'
 import jwt from 'jsonwebtoken'
 import dotenv from 'dotenv'
-import { createGladiaBridge, type TranscriptEvent } from './gladia-bridge.js'
-import { appendTranscriptChunk } from './append-transcript-chunk.js'
+// Убрали импорты createGladiaBridge и appendTranscriptChunk - клиенты больше не создают Gladia сессии
+// Серверная транскрипция создает ОДНУ Gladia сессию на комнату
 import {
   incrementConnections,
   decrementConnections,
-  incrementGladiaBridges,
-  decrementGladiaBridges,
-  incrementMessagesReceived,
   incrementMessagesSent,
   recordError,
 } from './metrics'
-import { validateAudioChunk, cleanupClientTracker } from './audio-validator.js'
+import { cleanupClientTracker } from './audio-validator.js'
 import { updateActiveSpeaker, type ActiveSpeakerEvent } from './active-speaker-tracker.js'
 
 dotenv.config()
@@ -160,97 +157,18 @@ export function handleClientConnection({ ws, req }: ClientConnectionOptions): vo
   })
 
   // Регистрируем клиента для получения транскриптов от серверной транскрипции
+  // ВАЖНО: Клиенты НЕ создают свои Gladia сессии!
+  // Серверная транскрипция создает ОДНУ Gladia сессию на комнату (в rtmp-ingest.ts или livekit-egress-transcriber.ts)
+  // Клиенты просто регистрируются и получают транскрипты, которые отправляются через broadcastToSessionClients
   registerClientForSession(sessionSlug, ws)
 
   // Увеличиваем счетчик активных соединений
   incrementConnections()
 
-  let gladiaBridge: Awaited<ReturnType<typeof createGladiaBridge>> | null = null
-  let isGladiaReady = false
-
-  // Инициализируем Gladia bridge
-  createGladiaBridge()
-    .then((bridge) => {
-      gladiaBridge = bridge
-      isGladiaReady = true
-      // Увеличиваем счетчик активных Gladia bridges
-      incrementGladiaBridges()
-
-      // Подписываемся на транскрипты от Gladia
-      bridge.onTranscript(async (event: TranscriptEvent) => {
-        try {
-          // ВАЖНО: Отправляем транскрипт ТОЛЬКО подключенному клиенту (transcription host)
-          // WebSocket сервер НЕ бродкастит транскрипты всем участникам
-          // Распространение среди других участников происходит через LiveKit data channel
-          // (реализовано на клиенте в useLocalParticipantTranscription)
-          if (ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({
-              type: 'transcription',
-              text: event.text,
-              is_final: event.isFinal,
-              utterance_id: event.utteranceId,
-            }))
-            // Увеличиваем счетчик отправленных сообщений
-            incrementMessagesSent()
-          }
-
-          // ВАЖНО: Сохраняем в БД только финальные сегменты
-          // Partial-ы отправляются клиенту для UI, но не сохраняются в БД
-          // Это снижает нагрузку на БД в 50-100 раз (partial обновляется каждые 200-500мс)
-          if (event.isFinal) {
-            // Добавляем в очередь для batch-записи (неблокирующий вызов)
-            // Запись произойдет асинхронно через batch-систему
-            appendTranscriptChunk({
-              sessionSlug,
-              participantIdentity: participantIdentity || undefined,
-              utteranceId: event.utteranceId,
-              text: event.text,
-              isFinal: true,
-              startedAt: event.startedAt,
-              endedAt: event.endedAt,
-            }).catch((error) => {
-              // Ошибка добавления в очередь (например, переполнение)
-              const errorMsg = error instanceof Error ? error.message : String(error)
-              console.error('[WS-SERVER] Error queueing transcript for batch insert:', error)
-              recordError(`Error queueing transcript: ${errorMsg}`)
-            })
-            
-            // Не логируем каждый финальный транскрипт (слишком много логов при высокой нагрузке)
-            // Логирование происходит в batch-системе при flush
-          } else {
-            // Partial транскрипт - только для клиента, не сохраняем в БД
-            // Логируем только периодически, чтобы не засорять логи
-            if (Math.random() < 0.01) { // Логируем ~1% partial транскриптов
-              console.log('[WS-SERVER] Partial transcript sent to client (not saved to DB)', {
-                sessionSlug,
-                utteranceId: event.utteranceId,
-                textLength: event.text.length,
-              })
-            }
-          }
-        } catch (error) {
-          const errorMsg = error instanceof Error ? error.message : String(error)
-          console.error('[WS-SERVER] Error processing transcript:', error)
-          recordError(`Error processing transcript: ${errorMsg}`)
-        }
-      })
-    })
-    .catch((error) => {
-      const errorMsg = error instanceof Error ? error.message : String(error)
-      console.error('[WS-SERVER] Failed to create Gladia bridge:', error)
-      recordError(`Failed to create Gladia bridge: ${errorMsg}`)
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({
-          type: 'error',
-          message: 'Failed to initialize transcription',
-        }))
-        ws.close()
-      }
-    })
-
   // Обрабатываем сообщения от клиента
   ws.on('message', (data: WebSocket.Data) => {
-    // Обрабатываем JSON сообщения (active speaker events)
+    // Обрабатываем только JSON сообщения (active speaker events)
+    // Аудио чанки больше не обрабатываем - серверная транскрипция работает через RTMP
     if (typeof data === 'string' || (data instanceof Buffer && data[0] === 0x7B)) {
       try {
         const message = JSON.parse(data.toString())
@@ -267,46 +185,12 @@ export function handleClientConnection({ ws, req }: ClientConnectionOptions): vo
           return
         }
       } catch (error) {
-        // Не JSON или невалидный JSON - игнорируем, возможно это аудио
+        // Не JSON или невалидный JSON - игнорируем
       }
     }
-
-    // Обрабатываем аудио чанки (только если Gladia готов)
-    if (!isGladiaReady || !gladiaBridge) {
-      return
-    }
-
-    // Отправляем аудио в Gladia
-    if (data instanceof Buffer || data instanceof ArrayBuffer) {
-      // Валидация размера и частоты чанков (защита от DoS)
-      const validation = validateAudioChunk(data, participantIdentity || 'unknown')
-      
-      if (!validation.valid) {
-        console.warn('[WS-SERVER] Invalid audio chunk rejected', {
-          reason: validation.reason,
-          size: data.byteLength || data.length,
-          clientIdentity: participantIdentity,
-        })
-        recordError(`Invalid audio chunk: ${validation.reason}`)
-        
-        // Отправляем предупреждение клиенту (но не закрываем соединение)
-        if (ws.readyState === WebSocket.OPEN) {
-          try {
-            ws.send(JSON.stringify({
-              type: 'warning',
-              message: 'Audio chunk rejected: invalid size or rate limit exceeded',
-            }))
-          } catch (e) {
-            // Игнорируем ошибки отправки предупреждения
-          }
-        }
-        return
-      }
-      
-      gladiaBridge.sendAudio(data)
-      // Увеличиваем счетчик полученных сообщений (аудио чанков)
-      incrementMessagesReceived()
-    }
+    
+    // Игнорируем аудио чанки - серверная транскрипция работает через RTMP
+    // Клиенты больше не отправляют аудио через WebSocket
   })
 
   ws.on('close', () => {
@@ -317,23 +201,17 @@ export function handleClientConnection({ ws, req }: ClientConnectionOptions): vo
       cleanupClientTracker(participantIdentity)
     }
     
-    // Уменьшаем счетчики при закрытии соединения
+    // Уменьшаем счетчик соединений
     decrementConnections()
-    if (gladiaBridge) {
-      gladiaBridge.close()
-      decrementGladiaBridges()
-    }
+    // НЕ закрываем Gladia bridge - он управляется серверной транскрипцией (1 на комнату)
   })
 
   ws.on('error', (error) => {
     const errorMsg = error instanceof Error ? error.message : String(error)
     console.error('[WS-SERVER] Client WebSocket error:', error)
     recordError(`Client WebSocket error: ${errorMsg}`)
-    // Уменьшаем счетчики при ошибке
+    // Уменьшаем счетчик соединений
     decrementConnections()
-    if (gladiaBridge) {
-      gladiaBridge.close()
-      decrementGladiaBridges()
-    }
+    // НЕ закрываем Gladia bridge - он управляется серверной транскрипцией (1 на комнату)
   })
 }

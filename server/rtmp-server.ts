@@ -49,10 +49,12 @@ class RTMPServer extends EventEmitter {
         ping: 30,
         ping_timeout: 60,
       },
-      http: {
-        port: 8000, // HTTP для статистики (опционально)
-        allow_origin: '*',
-      },
+      // Отключаем HTTP сервер - он конфликтует с основным HTTP сервером на порту 8000
+      // Нам нужен только RTMP сервер
+      // http: {
+      //   port: 8000,
+      //   allow_origin: '*',
+      // },
     })
 
     // Обработка подключения RTMP потока

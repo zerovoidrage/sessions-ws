@@ -151,6 +151,23 @@ server.on('request', (req, res) => {
     return
   }
 
+  // Тестовый endpoint для проверки доступности сервера
+  if (req.url === '/test' && req.method === 'GET') {
+    res.statusCode = 200
+    res.end(JSON.stringify({ 
+      status: 'ok', 
+      message: 'Server is running',
+      timestamp: new Date().toISOString(),
+      port: PORT,
+      env: {
+        PORT: process.env.PORT,
+        WS_PORT: process.env.WS_PORT,
+        NODE_ENV: process.env.NODE_ENV,
+      }
+    }))
+    return
+  }
+
   // Для всех остальных запросов возвращаем 404
   console.warn(`[WS-SERVER] 404: ${req.method} ${req.url} not found`)
   res.statusCode = 404

@@ -90,12 +90,21 @@ server.on('request', (req, res) => {
         }
 
         console.log(`[WS-SERVER] Starting transcription for session ${sessionId} (room: ${sessionSlug})`)
-        const { startServerTranscription } = await import('./livekit-transcriber.js')
-        await startServerTranscription({ sessionId, sessionSlug })
         
-        console.log(`[WS-SERVER] ✅ Transcription started successfully for session ${sessionId}`)
+        // Отправляем ответ сразу, чтобы избежать таймаута Railway (30 секунд)
+        // Запуск транскрипции делаем асинхронно в фоне
         res.statusCode = 200
-        res.end(JSON.stringify({ success: true, sessionId }))
+        res.end(JSON.stringify({ success: true, sessionId, message: 'Transcription start initiated' }))
+        
+        // Запускаем транскрипцию асинхронно (не блокируем ответ)
+        const { startServerTranscription } = await import('./livekit-transcriber.js')
+        startServerTranscription({ sessionId, sessionSlug })
+          .then(() => {
+            console.log(`[WS-SERVER] ✅ Transcription started successfully for session ${sessionId}`)
+          })
+          .catch((error) => {
+            console.error(`[WS-SERVER] ❌ Failed to start transcription for session ${sessionId}:`, error)
+          })
       } catch (error: any) {
         console.error('[WS-SERVER] ❌ Error starting transcription:', error)
         res.statusCode = 500

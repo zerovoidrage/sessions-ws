@@ -21,15 +21,36 @@ import dotenv from 'dotenv'
 dotenv.config()
 
 // Конфигурация LiveKit для серверного окружения
+// Преобразуем NEXT_PUBLIC_LIVEKIT_URL в HTTP URL если нужно
+function getHttpUrl(): string {
+  if (process.env.LIVEKIT_HTTP_URL) {
+    return process.env.LIVEKIT_HTTP_URL
+  }
+  if (process.env.NEXT_PUBLIC_LIVEKIT_URL) {
+    const wsUrl = process.env.NEXT_PUBLIC_LIVEKIT_URL.trim()
+    return wsUrl
+      .replace(/^wss:\/\//, 'https://')
+      .replace(/^ws:\/\//, 'http://')
+  }
+  throw new Error('LIVEKIT_HTTP_URL or NEXT_PUBLIC_LIVEKIT_URL must be set')
+}
+
 const livekitEnv = {
   apiKey: process.env.LIVEKIT_API_KEY!,
   apiSecret: process.env.LIVEKIT_API_SECRET!,
   wsUrl: process.env.NEXT_PUBLIC_LIVEKIT_URL!,
-  httpUrl: process.env.LIVEKIT_HTTP_URL || process.env.NEXT_PUBLIC_LIVEKIT_URL!.replace('wss://', 'https://').replace('ws://', 'http://'),
+  httpUrl: getHttpUrl(),
 }
 
-if (!livekitEnv.apiKey || !livekitEnv.apiSecret || !livekitEnv.wsUrl) {
-  console.warn('[EgressTranscriber] Missing LIVEKIT env vars')
+if (!livekitEnv.apiKey || !livekitEnv.apiSecret || !livekitEnv.wsUrl || !livekitEnv.httpUrl) {
+  console.warn('[EgressTranscriber] Missing LIVEKIT env vars', {
+    hasApiKey: !!livekitEnv.apiKey,
+    hasApiSecret: !!livekitEnv.apiSecret,
+    hasWsUrl: !!livekitEnv.wsUrl,
+    hasHttpUrl: !!livekitEnv.httpUrl,
+    nextPublicUrl: process.env.NEXT_PUBLIC_LIVEKIT_URL || 'NOT SET',
+    httpUrl: process.env.LIVEKIT_HTTP_URL || 'NOT SET',
+  })
 }
 
 export interface StartEgressTranscriptionOptions {

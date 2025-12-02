@@ -17,12 +17,33 @@ import dotenv from 'dotenv'
 dotenv.config()
 
 function getLiveKitEnv() {
-  const httpUrl = process.env.LIVEKIT_HTTP_URL || process.env.NEXT_PUBLIC_LIVEKIT_URL?.replace('wss://', 'https://').replace('ws://', 'http://')
+  // Сначала проверяем LIVEKIT_HTTP_URL
+  let httpUrl = process.env.LIVEKIT_HTTP_URL
+  
+  // Если нет, пытаемся преобразовать NEXT_PUBLIC_LIVEKIT_URL (wss:// -> https://)
+  if (!httpUrl && process.env.NEXT_PUBLIC_LIVEKIT_URL) {
+    const wsUrl = process.env.NEXT_PUBLIC_LIVEKIT_URL.trim()
+    httpUrl = wsUrl
+      .replace(/^wss:\/\//, 'https://')
+      .replace(/^ws:\/\//, 'http://')
+    console.log(`[LiveKitEnv] Converted NEXT_PUBLIC_LIVEKIT_URL: ${wsUrl} -> ${httpUrl}`)
+  }
+  
   const apiKey = process.env.LIVEKIT_API_KEY
   const apiSecret = process.env.LIVEKIT_API_SECRET
 
+  // Логируем для отладки (без секретов)
+  console.log(`[LiveKitEnv] HTTP URL: ${httpUrl ? httpUrl.replace(/\/\/[^@]+@/, '//***@') : 'NOT SET'}`)
+  console.log(`[LiveKitEnv] API Key: ${apiKey ? `${apiKey.substring(0, 4)}...` : 'NOT SET'}`)
+  console.log(`[LiveKitEnv] API Secret: ${apiSecret ? 'SET' : 'NOT SET'}`)
+  console.log(`[LiveKitEnv] NEXT_PUBLIC_LIVEKIT_URL: ${process.env.NEXT_PUBLIC_LIVEKIT_URL || 'NOT SET'}`)
+
   if (!httpUrl || !apiKey || !apiSecret) {
-    throw new Error('LIVEKIT_HTTP_URL, LIVEKIT_API_KEY, and LIVEKIT_API_SECRET must be set')
+    const missing = []
+    if (!httpUrl) missing.push('LIVEKIT_HTTP_URL or NEXT_PUBLIC_LIVEKIT_URL')
+    if (!apiKey) missing.push('LIVEKIT_API_KEY')
+    if (!apiSecret) missing.push('LIVEKIT_API_SECRET')
+    throw new Error(`Missing required LiveKit environment variables: ${missing.join(', ')}`)
   }
 
   return { httpUrl, apiKey, apiSecret }

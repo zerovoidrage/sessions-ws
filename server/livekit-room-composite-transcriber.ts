@@ -17,16 +17,18 @@ import dotenv from 'dotenv'
 dotenv.config()
 
 function getLiveKitEnv() {
-  // Сначала проверяем LIVEKIT_HTTP_URL
-  let httpUrl = process.env.LIVEKIT_HTTP_URL
+  // Получаем URL из переменных окружения
+  let httpUrl = process.env.LIVEKIT_HTTP_URL || process.env.NEXT_PUBLIC_LIVEKIT_URL
   
-  // Если нет, пытаемся преобразовать NEXT_PUBLIC_LIVEKIT_URL (wss:// -> https://)
-  if (!httpUrl && process.env.NEXT_PUBLIC_LIVEKIT_URL) {
-    const wsUrl = process.env.NEXT_PUBLIC_LIVEKIT_URL.trim()
-    httpUrl = wsUrl
+  // Преобразуем wss:// -> https:// и ws:// -> http://
+  if (httpUrl) {
+    const originalUrl = httpUrl.trim()
+    httpUrl = originalUrl
       .replace(/^wss:\/\//, 'https://')
       .replace(/^ws:\/\//, 'http://')
-    console.log(`[LiveKitEnv] Converted NEXT_PUBLIC_LIVEKIT_URL: ${wsUrl} -> ${httpUrl}`)
+    if (originalUrl !== httpUrl) {
+      console.log(`[LiveKitEnv] Converted URL: ${originalUrl} -> ${httpUrl}`)
+    }
   }
   
   const apiKey = process.env.LIVEKIT_API_KEY

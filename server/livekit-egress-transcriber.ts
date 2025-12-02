@@ -21,18 +21,16 @@ import dotenv from 'dotenv'
 dotenv.config()
 
 // Конфигурация LiveKit для серверного окружения
-// Преобразуем NEXT_PUBLIC_LIVEKIT_URL в HTTP URL если нужно
+// Преобразуем URL в HTTP формат (wss:// -> https://)
 function getHttpUrl(): string {
-  if (process.env.LIVEKIT_HTTP_URL) {
-    return process.env.LIVEKIT_HTTP_URL
+  const url = process.env.LIVEKIT_HTTP_URL || process.env.NEXT_PUBLIC_LIVEKIT_URL
+  if (!url) {
+    throw new Error('LIVEKIT_HTTP_URL or NEXT_PUBLIC_LIVEKIT_URL must be set')
   }
-  if (process.env.NEXT_PUBLIC_LIVEKIT_URL) {
-    const wsUrl = process.env.NEXT_PUBLIC_LIVEKIT_URL.trim()
-    return wsUrl
-      .replace(/^wss:\/\//, 'https://')
-      .replace(/^ws:\/\//, 'http://')
-  }
-  throw new Error('LIVEKIT_HTTP_URL or NEXT_PUBLIC_LIVEKIT_URL must be set')
+  // Преобразуем wss:// -> https:// и ws:// -> http://
+  return url.trim()
+    .replace(/^wss:\/\//, 'https://')
+    .replace(/^ws:\/\//, 'http://')
 }
 
 const livekitEnv = {

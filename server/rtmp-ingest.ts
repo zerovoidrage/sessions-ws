@@ -47,7 +47,9 @@ class RTMPIngestImpl extends EventEmitter implements RTMPIngest {
   ) {
     super()
     const rtmpPort = config.rtmpPort || 1935
-    const rtmpHost = process.env.RTMP_HOST || 'localhost'
+    // ВАЖНО: FFmpeg всегда подключается к локальному RTMP серверу (localhost)
+    // Egress подключается к внешнему URL через TCP прокси, который проксируется на локальный порт
+    const rtmpHost = 'localhost'
     this.streamPath = `/live/${config.sessionSlug}`
     this.rtmpUrl = `rtmp://${rtmpHost}:${rtmpPort}${this.streamPath}`
     

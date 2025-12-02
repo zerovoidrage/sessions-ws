@@ -698,9 +698,10 @@ export function useLocalParticipantTranscription({
         
         const wsPort = process.env.NEXT_PUBLIC_WS_PORT
         let portSuffix = ''
-        // ВАЖНО: Если порт явно указан в переменной окружения, используем его даже для production
+        // ВАЖНО: Если порт явно указан в переменной окружения (и не пустой), используем его
         // Это необходимо для Render и других платформ, где WebSocket сервер работает на нестандартном порту
-        if (wsPort) {
+        // Для Railway production: порт не указываем (проксируется на стандартный 443)
+        if (wsPort && wsPort !== '') {
           portSuffix = `:${wsPort}`
         } else if (!isProduction) {
           // Для dev окружения используем порт по умолчанию

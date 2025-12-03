@@ -393,8 +393,6 @@ async function flushBatchForSession(
       // Оптимизация: ReadCommitted для лучшей производительности
       // При высокой нагрузке это снижает блокировки
       isolationLevel: 'ReadCommitted',
-      // Таймаут для транзакции (10 секунд)
-      timeout: 10000,
     }
   )
 }

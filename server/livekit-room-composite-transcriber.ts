@@ -10,7 +10,7 @@
  * - Идеально для speaker diarization в Gladia
  */
 
-import { EgressClient, RoomServiceClient, StreamProtocol } from 'livekit-server-sdk'
+import { EgressClient, RoomServiceClient, StreamProtocol, StreamOutput } from 'livekit-server-sdk'
 import { createRTMPIngest, type RTMPIngest } from './rtmp-ingest.js'
 import dotenv from 'dotenv'
 
@@ -40,15 +40,16 @@ function getLiveKitEnv() {
   console.log(`[LiveKitEnv] API Key: ${apiKey ? `${apiKey.substring(0, 4)}...` : 'NOT SET'}`)
   console.log(`[LiveKitEnv] API Secret: ${apiSecret ? 'SET' : 'NOT SET'}`)
 
-  if (!wsUrl || !apiKey || !apiSecret) {
+  if (!wsUrl || !httpUrl || !apiKey || !apiSecret) {
     const missing = []
     if (!wsUrl) missing.push('NEXT_PUBLIC_LIVEKIT_URL or LIVEKIT_HTTP_URL')
+    if (!httpUrl) missing.push('httpUrl (derived from wsUrl)')
     if (!apiKey) missing.push('LIVEKIT_API_KEY')
     if (!apiSecret) missing.push('LIVEKIT_API_SECRET')
     throw new Error(`Missing required LiveKit environment variables: ${missing.join(', ')}`)
   }
 
-  return { wsUrl, httpUrl, apiKey, apiSecret }
+  return { wsUrl, httpUrl: httpUrl as string, apiKey, apiSecret }
 }
 
 export interface RoomCompositeTranscriber {
@@ -109,14 +110,13 @@ export async function startRoomCompositeTranscription(
     })
 
     // 2. Запускаем Room Composite Egress с audio-only и RTMP выходом
+    const streamOutput = new StreamOutput({
+      protocol: StreamProtocol.RTMP,
+      urls: [rtmpUrl],
+    })
     const egressInfo = await egressClient.startRoomCompositeEgress(
       sessionSlug,
-      {
-        stream: {
-          protocol: StreamProtocol.RTMP,
-          urls: [rtmpUrl],
-        },
-      },
+      streamOutput,
       {
         audioOnly: true, // Только аудио для транскрипции
       }

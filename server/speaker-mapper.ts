@@ -25,15 +25,16 @@ function getLiveKitEnv() {
   const apiKey = process.env.LIVEKIT_API_KEY
   const apiSecret = process.env.LIVEKIT_API_SECRET
 
-  if (!wsUrl || !apiKey || !apiSecret) {
+  if (!wsUrl || !httpUrl || !apiKey || !apiSecret) {
     const missing = []
     if (!wsUrl) missing.push('NEXT_PUBLIC_LIVEKIT_URL or LIVEKIT_HTTP_URL')
+    if (!httpUrl) missing.push('httpUrl (derived from wsUrl)')
     if (!apiKey) missing.push('LIVEKIT_API_KEY')
     if (!apiSecret) missing.push('LIVEKIT_API_SECRET')
     throw new Error(`Missing required LiveKit environment variables: ${missing.join(', ')}`)
   }
 
-  return { wsUrl, httpUrl, apiKey, apiSecret }
+  return { wsUrl, httpUrl: httpUrl as string, apiKey, apiSecret }
 }
 
 export interface SpeakerMapping {

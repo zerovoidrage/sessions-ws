@@ -12,7 +12,7 @@
 
 import { EgressClient, RoomServiceClient } from 'livekit-server-sdk'
 import { WebSocket } from 'ws'
-import { createGladiaBridge, type TranscriptEvent } from './gladia-bridge.js'
+import { createGladiaBridge, type TranscriptEvent, type GladiaBridge } from './gladia-bridge.js'
 import { appendTranscriptChunk } from './append-transcript-chunk.js'
 import { AudioProcessor } from './audio-processor.js'
 import { AudioDecoder } from './audio-decoder.js'
@@ -40,6 +40,11 @@ const livekitEnv = {
   apiSecret: process.env.LIVEKIT_API_SECRET!,
   wsUrl: wsUrl!,
   httpUrl: getHttpUrl(),
+} as const satisfies {
+  apiKey: string
+  apiSecret: string
+  wsUrl: string
+  httpUrl: string
 }
 
 if (!livekitEnv.apiKey || !livekitEnv.apiSecret || !livekitEnv.wsUrl || !livekitEnv.httpUrl) {
@@ -178,7 +183,7 @@ class EgressTranscriberImpl implements EgressTranscriber {
   private egressClient: EgressClient | null = null
   private roomService: RoomServiceClient | null = null
   private egressIds: string[] = [] // Массив egress ID для всех треков
-  private gladiaBridge: Awaited<ReturnType<typeof createGladiaBridge>> | null = null
+  private gladiaBridge: GladiaBridge | null = null
   private egressWebSockets = new Map<string, WebSocket>() // trackId -> WebSocket
   // Убрали подключение к комнате через livekit-client (не работает в Node.js)
   // Транскрипты отправляются клиентам через WebSocket
@@ -660,7 +665,7 @@ class EgressTranscriberImpl implements EgressTranscriber {
     // Финальная обработка оставшихся аудио данных
     const remaining = this.audioProcessor.flush()
     if (remaining && this.gladiaBridge) {
-      this.gladiaBridge.sendAudio(remaining)
+      (this.gladiaBridge as GladiaBridge).sendAudio(remaining)
     }
   }
 }

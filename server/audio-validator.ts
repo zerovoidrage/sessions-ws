@@ -65,7 +65,9 @@ export function validateAudioChunk(
   clientId: string,
   config: AudioValidationConfig = DEFAULT_CONFIG
 ): { valid: boolean; reason?: string } {
-  const size = chunkData.byteLength || chunkData.length
+  const size = chunkData instanceof ArrayBuffer 
+    ? chunkData.byteLength 
+    : (chunkData as Buffer).length
 
   // Проверка размера чанка
   if (size > config.maxChunkSizeBytes) {

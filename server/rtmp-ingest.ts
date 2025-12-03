@@ -154,6 +154,10 @@ class RTMPIngestImpl extends EventEmitter implements RTMPIngest {
       stdio: ['ignore', 'pipe', 'pipe'], // stdin: ignore, stdout: pipe, stderr: pipe
     })
 
+    if (!this.ffmpegProcess.stdout || !this.ffmpegProcess.stderr) {
+      throw new Error('FFmpeg process stdout/stderr is not available')
+    }
+
     this.ffmpegProcess.stdout.on('data', (chunk: Buffer) => {
       // Получаем PCM16 данные и отправляем в Gladia
       if (this.gladiaBridge && chunk.length > 0) {

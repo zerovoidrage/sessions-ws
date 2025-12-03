@@ -76,18 +76,6 @@ export function TVNoise({ isActive, duration = 2000 }: TVNoiseProps) {
           }}
         />
       </div>
-      
-      {/* Текст "no signal..." по центру */}
-      <div className="absolute inset-0 flex items-center justify-center">
-        <p
-          className="text-white-900 text-lg"
-          style={{
-            textShadow: '0 0 10px rgba(255, 255, 255, 0.5)',
-          }}
-        >
-          Signal not found
-        </p>
-      </div>
     </div>
   )
 }

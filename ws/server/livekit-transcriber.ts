@@ -163,7 +163,7 @@ class ServerTranscriberImpl implements ServerTranscriber {
   async start(): Promise<void> {
     try {
       // 1. Генерируем токен для транскрайбера
-      const token = this.generateTranscriberToken()
+      const token = await this.generateTranscriberToken()
 
       // 2. Создаём комнату и подключаемся
       this.room = new Room()
@@ -200,7 +200,7 @@ class ServerTranscriberImpl implements ServerTranscriber {
     return this.isActiveFlag
   }
 
-  private generateTranscriberToken(): string {
+  private async generateTranscriberToken(): Promise<string> {
     if (!livekitEnv.apiKey || !livekitEnv.apiSecret) {
       throw new Error('LiveKit env not configured')
     }
@@ -218,7 +218,7 @@ class ServerTranscriberImpl implements ServerTranscriber {
       canSubscribe: true, // Транскрайбер подписывается на аудио треки
     })
 
-    return at.toJwt()
+    return await at.toJwt()
   }
 
   private setupRoomEventHandlers(): void {

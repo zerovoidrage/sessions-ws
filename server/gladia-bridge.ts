@@ -15,6 +15,7 @@
 import https from 'https'
 import { WebSocket } from 'ws'
 import dotenv from 'dotenv'
+import { recordLatency, recordCounter } from './realtime-metrics.js'
 
 dotenv.config()
 
@@ -127,6 +128,8 @@ export async function createGladiaBridge(): Promise<GladiaBridge> {
   let transcriptCallback: ((event: TranscriptEvent) => void) | null = null
   let isReady = false
   let isClosed = false
+  let lastMessageTs: number | null = null
+  let lastEventType: string | null = null
   
   gladiaWs.on('open', () => {
     console.log('[GladiaBridge] ✅ WebSocket connected to Gladia Live v2')
@@ -138,17 +141,44 @@ export async function createGladiaBridge(): Promise<GladiaBridge> {
       return // Игнорируем сообщения после закрытия
     }
 
-    const messageReceivedAt = Date.now()
+    const receivedAt = Date.now()
 
     try {
       const message: GladiaMessage = JSON.parse(data.toString())
+      
+      // Телеметрия: отслеживание всех сообщений от Gladia
+      recordCounter('gladia.messages_total')
+      lastEventType = message.type || null
+      
+      // Телеметрия: отслеживание gaps между сообщениями
+      if (lastMessageTs) {
+        const gap = receivedAt - lastMessageTs
+        recordLatency('gladia.message_gap_ms', gap)
+        
+        // Предупреждение при длинных gaps
+        if (gap > 2000) {
+          console.warn('[GladiaBridge] ⚠️ Long gap between messages', {
+            gapMs: gap,
+            lastEventType,
+            currentEventType: message.type,
+          })
+        }
+      }
+      lastMessageTs = receivedAt
       
       // Парсим транскрипты через helper
       const transcriptEvent = parseTranscriptMessage(message)
       
       if (transcriptEvent && transcriptCallback) {
         // Добавляем timestamp получения сообщения
-        transcriptEvent.receivedAt = messageReceivedAt
+        transcriptEvent.receivedAt = receivedAt
+        
+        // Телеметрия: задержка обработки в Gladia (для финальных транскриптов)
+        if (transcriptEvent.endedAt) {
+          const sttLatency = receivedAt - transcriptEvent.endedAt.getTime()
+          recordLatency('gladia.stt_latency_ms', sttLatency)
+        }
+        
         transcriptCallback(transcriptEvent)
         
         // Логируем получение транскрипта от Gladia (периодически)
@@ -157,7 +187,7 @@ export async function createGladiaBridge(): Promise<GladiaBridge> {
             utteranceId: transcriptEvent.utteranceId,
             isFinal: transcriptEvent.isFinal,
             textPreview: transcriptEvent.text.slice(0, 50),
-            timestamp: messageReceivedAt,
+            timestamp: receivedAt,
           })
         }
       }

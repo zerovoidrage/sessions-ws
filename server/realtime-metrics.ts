@@ -1,7 +1,7 @@
 /**
  * Realtime Core Metrics
  * 
- * Простой сборщик метрик latency для realtime-пайплайна.
+ * Простой сборщик метрик latency и counters для realtime-пайплайна.
  * Минимальный overhead, in-memory хранение.
  */
 
@@ -13,6 +13,7 @@ type LatencyBucket = {
 }
 
 const latencyStore: Record<string, LatencyBucket> = {}
+const countersStore: Record<string, number> = {}
 
 /**
  * Записывает метрику latency
@@ -37,8 +38,8 @@ export function recordLatency(name: string, valueMs: number): void {
   bucket.min = Math.min(bucket.min, valueMs)
   bucket.max = Math.max(bucket.max, valueMs)
 
-  // Периодическое логирование для отладки (каждые 100 записей)
-  if (bucket.count % 100 === 0) {
+  // Периодическое логирование для отладки (каждые 200 записей)
+  if (bucket.count % 200 === 0) {
     const avg = bucket.sum / bucket.count
     console.log(`[METRICS] ${name}`, {
       count: bucket.count,
@@ -47,6 +48,17 @@ export function recordLatency(name: string, valueMs: number): void {
       maxMs: Math.round(bucket.max),
     })
   }
+}
+
+/**
+ * Записывает счетчик (increment)
+ */
+export function recordCounter(name: string, delta: number = 1): void {
+  if (!Number.isFinite(delta)) {
+    return
+  }
+  
+  countersStore[name] = (countersStore[name] || 0) + delta
 }
 
 /**
@@ -70,11 +82,21 @@ export function getLatencySnapshot(): Record<string, any> {
 }
 
 /**
+ * Возвращает снимок всех счетчиков
+ */
+export function getCountersSnapshot(): Record<string, number> {
+  return { ...countersStore }
+}
+
+/**
  * Сбрасывает все метрики (для тестирования)
  */
 export function resetMetrics(): void {
   for (const key of Object.keys(latencyStore)) {
     delete latencyStore[key]
+  }
+  for (const key of Object.keys(countersStore)) {
+    delete countersStore[key]
   }
 }
 

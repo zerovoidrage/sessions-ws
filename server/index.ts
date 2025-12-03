@@ -79,12 +79,15 @@ const server = http.createServer(async (req, res) => {
     try {
       const metrics = getMetrics()
       const queueMetrics = getQueueMetrics()
+      const { getLatencySnapshot, getCountersSnapshot } = await import('./realtime-metrics.js')
       const latencyMetrics = getLatencySnapshot()
+      const countersMetrics = getCountersSnapshot()
       res.statusCode = 200
       res.end(JSON.stringify({
         ...metrics,
         queue: queueMetrics,
         latency: latencyMetrics,
+        counters: countersMetrics,
       }, null, 2))
     } catch (error) {
       res.statusCode = 500

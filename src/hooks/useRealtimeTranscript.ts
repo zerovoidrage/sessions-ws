@@ -16,6 +16,8 @@ export type TranscriptMessage = {
   text: string
   speaker?: string
   ts: number
+  lastUpdateAt?: number
+  autoFinalized?: boolean
 }
 
 export type UseRealtimeTranscriptResult = {
@@ -70,6 +72,7 @@ export function useRealtimeTranscript(
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const reconnectAttemptsRef = useRef(0)
   const maxReconnectAttempts = 5
+  const currentUtteranceRef = useRef<TranscriptMessage | null>(null)
 
   useEffect(() => {
     if (!transcriptionToken) {
@@ -108,20 +111,30 @@ export function useRealtimeTranscript(
             return
           }
 
+          const now = Date.now()
           const msg: TranscriptMessage = {
             id: data.utteranceId ?? `${data.ts}-${Math.random().toString(16).slice(2)}`,
             text: data.text,
             speaker: data.speaker,
-            ts: data.ts ?? Date.now(),
+            ts: data.ts ?? now,
+            lastUpdateAt: now,
           }
 
-          // Замер клиентской latency
+          // Замер клиентской latency с предупреждениями
           if (typeof data.ts === 'number') {
-            const clientLatency = Date.now() - data.ts
-            // Логируем только периодически, чтобы не спамить
-            if (Math.random() < 0.1) {
-              console.log('[CLIENT_METRICS] transcript_latency_ms', clientLatency)
+            const clientLatency = now - data.ts
+            if (clientLatency > 2000) {
+              console.warn('[CLIENT_METRICS] ⚠️ High transcript latency', {
+                clientLatency,
+                textPreview: data.text?.slice(0, 40),
+                isFinal: data.isFinal,
+                sessionSlug,
+              })
             }
+            // Для отладки можно иногда логировать нормальные значения
+            // else if (Math.random() < 0.1) {
+            //   console.log('[CLIENT_METRICS] transcript_latency_ms', clientLatency)
+            // }
           }
 
           if (data.isFinal) {
@@ -130,9 +143,11 @@ export function useRealtimeTranscript(
             setCurrentUtterance((prev) =>
               prev && prev.id === msg.id ? null : prev
             )
+            currentUtteranceRef.current = null
           } else {
             // Interim транскрипт - обновляем currentUtterance
             setCurrentUtterance(msg)
+            currentUtteranceRef.current = msg
           }
         }
 
@@ -176,6 +191,32 @@ export function useRealtimeTranscript(
       }
     }
   }, [sessionSlug, transcriptionToken])
+
+  // Синхронизация ref с state для авто-финализации
+  useEffect(() => {
+    currentUtteranceRef.current = currentUtterance
+  }, [currentUtterance])
+
+  // Авто-финализация draft сообщений через 3000ms без обновлений
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const cu = currentUtteranceRef.current
+      if (!cu) return
+
+      const now = Date.now()
+      const lastUpdate = cu.lastUpdateAt ?? cu.ts
+      const gap = now - lastUpdate
+
+      if (gap > 3000) {
+        // Авто-финализация: считаем draft финальным и добавляем в messages
+        setMessages((prev) => [...prev, { ...cu, autoFinalized: true }])
+        setCurrentUtterance(null)
+        currentUtteranceRef.current = null
+      }
+    }, 500) // Проверяем каждые 500ms
+
+    return () => clearInterval(interval)
+  }, [])
 
   return { messages, currentUtterance }
 }

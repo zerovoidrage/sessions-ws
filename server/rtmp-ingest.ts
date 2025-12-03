@@ -19,7 +19,7 @@ import { createGladiaBridge, type TranscriptEvent } from './gladia-bridge.js'
 import { broadcastToSessionClients } from './client-connection.js'
 import { appendTranscriptChunk } from './append-transcript-chunk.js'
 import { getActiveSpeaker } from './active-speaker-tracker.js'
-import { recordLatency } from './realtime-metrics.js'
+import { recordLatency, recordCounter } from './realtime-metrics.js'
 
 /**
  * Режим broadcast транскриптов:
@@ -61,6 +61,9 @@ class RTMPIngestImpl extends EventEmitter implements RTMPIngest {
   private ffmpegRestartAttempts = 0
   private readonly MAX_FFMPEG_RESTARTS = 3
   private ffmpegStderrLines: string[] = []
+  // Телеметрия для точного отслеживания задержек
+  private lastAudioChunkSentAt: number | null = null
+  private lastTranscriptReceivedAt: number | null = null
 
   constructor(
     private config: RTMPIngestConfig
@@ -271,15 +274,20 @@ class RTMPIngestImpl extends EventEmitter implements RTMPIngest {
           const chunkToSend = audioBuffer.slice(0, OPTIMAL_CHUNK_SIZE)
           audioBuffer = audioBuffer.slice(OPTIMAL_CHUNK_SIZE)
           
+          // Телеметрия: отслеживание отправки аудио чанков
+          const sendTs = Date.now()
+          this.lastAudioChunkSentAt = sendTs
+          recordCounter('audio.chunks_sent')
+          recordLatency('audio.chunk_size_bytes', chunkToSend.length)
+          
           // Логируем отправку аудио чанка (периодически для метрик)
-          const audioChunkSentAt = Date.now()
           if (Math.random() < 0.01) { // 1% логов
             console.log('[RTMPIngest] 🎤 Audio chunk sent to Gladia', {
               sessionSlug: this.config.sessionSlug,
               chunkSize: chunkToSend.length,
               audioDurationMs: (chunkToSend.length / 2 / 16000) * 1000, // bytes / 2 / sampleRate * 1000
-              timestamp: audioChunkSentAt,
-              timestampISO: new Date(audioChunkSentAt).toISOString(),
+              timestamp: sendTs,
+              timestampISO: new Date(sendTs).toISOString(),
             })
           }
           
@@ -289,6 +297,12 @@ class RTMPIngestImpl extends EventEmitter implements RTMPIngest {
         
         // Отправляем остатки если прошло достаточно времени (чтобы не накапливались)
         if (shouldFlush && audioBuffer.length > 0) {
+          // Телеметрия: отслеживание отправки остатков буфера
+          const sendTs = Date.now()
+          this.lastAudioChunkSentAt = sendTs
+          recordCounter('audio.chunks_sent')
+          recordLatency('audio.chunk_size_bytes', audioBuffer.length)
+          
           this.gladiaBridge.sendAudio(audioBuffer)
           audioBuffer = Buffer.alloc(0)
           lastFlushTime = now
@@ -611,7 +625,14 @@ class RTMPIngestImpl extends EventEmitter implements RTMPIngest {
   private handleTranscript(event: TranscriptEvent): void {
     if (!this.gladiaBridge) return
 
-    const transcriptReceivedAt = Date.now()
+    const now = Date.now()
+    this.lastTranscriptReceivedAt = now
+
+    // Телеметрия: задержка от последней отправки аудио до получения транскрипта
+    if (this.lastAudioChunkSentAt) {
+      const diff = now - this.lastAudioChunkSentAt
+      recordLatency('stt.end_to_transcript_ms', diff)
+    }
 
     // Получаем текущего активного спикера для этой сессии
     // active-speaker-tracker из LiveKit - основной источник
@@ -622,7 +643,7 @@ class RTMPIngestImpl extends EventEmitter implements RTMPIngest {
 
     // Вычисляем задержку обработки в Gladia (если есть receivedAt от Gladia Bridge)
     const gladiaProcessingTime = event.receivedAt 
-      ? transcriptReceivedAt - event.receivedAt 
+      ? now - event.receivedAt 
       : null
 
     // Логируем получение транскрипта от Gladia с детальными метриками
@@ -635,8 +656,8 @@ class RTMPIngestImpl extends EventEmitter implements RTMPIngest {
       speakerIdentity,
       speakerName,
       gladiaSpeakerId: event.speakerId,
-      timestamp: transcriptReceivedAt,
-      timestampISO: new Date(transcriptReceivedAt).toISOString(),
+      timestamp: now,
+      timestampISO: new Date(now).toISOString(),
       // Метрики задержек
       gladiaProcessingTimeMs: gladiaProcessingTime, // Время обработки в Gladia (если доступно)
       startedAt: event.startedAt?.toISOString(),
@@ -644,7 +665,7 @@ class RTMPIngestImpl extends EventEmitter implements RTMPIngest {
     })
 
     // Формируем payload для broadcast
-    const now = Date.now()
+    const deliveryTs = Date.now()
     const broadcastBody = {
       sessionSlug: this.config.sessionSlug,
       utteranceId: event.utteranceId,
@@ -652,14 +673,11 @@ class RTMPIngestImpl extends EventEmitter implements RTMPIngest {
       isFinal: event.isFinal,
       speaker: speakerIdentity,
       speakerId: speakerIdentity,
-      ts: now,
+      ts: deliveryTs,
     }
 
-    // Метрики: задержка обработки в Gladia
-    if (event.endedAt) {
-      const sttLatency = now - event.endedAt.getTime()
-      recordLatency('gladia.stt_latency_ms', sttLatency)
-    }
+    // Метрика gladia.stt_latency_ms уже записывается в gladia-bridge.ts
+    // Здесь мы только используем её для логирования
 
     // Основной путь: прямой WS broadcast (direct mode) или HTTP (fallback)
     if (REALTIME_BROADCAST_MODE === 'direct') {
@@ -679,8 +697,9 @@ class RTMPIngestImpl extends EventEmitter implements RTMPIngest {
       broadcastToSessionClients(this.config.sessionSlug, payload)
       const broadcastEnd = Date.now()
       
-      // Метрики: время broadcast loop
+      // Телеметрия: время broadcast loop и счетчик отправленных транскриптов
       recordLatency('ws.broadcast_loop_ms', broadcastEnd - broadcastStart)
+      recordCounter('ws.transcripts_sent')
       
       // Метрики: общая задержка обработки в ingest
       const ingestLatency = broadcastEnd - broadcastBody.ts

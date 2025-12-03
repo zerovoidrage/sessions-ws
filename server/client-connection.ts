@@ -123,6 +123,8 @@ export function verifyTranscriptionToken(token: string): {
 export function handleClientConnection({ ws, req }: ClientConnectionOptions): void {
   console.log('[WS-SERVER] Client connected', {
     remoteAddress: req.socket.remoteAddress,
+    host: req.headers.host,
+    origin: req.headers.origin,
     readyState: ws.readyState, // 0=CONNECTING, 1=OPEN, 2=CLOSING, 3=CLOSED
     protocol: ws.protocol,
     extensions: ws.extensions,

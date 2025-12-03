@@ -164,9 +164,21 @@ class RTMPIngestImpl extends EventEmitter implements RTMPIngest {
     }
 
     // FFmpeg команда для декодирования RTMP → PCM16 16kHz mono
+    // Агрессивные low-latency флаги для минимизации буферизации
     const ffmpegArgs = [
+      // Ultra-low-latency флаги для RTMP
+      '-fflags', 'nobuffer', // Отключаем буферизацию
+      '-flags', 'low_delay', // Минимальная задержка
       '-rtmp_live', 'live', // Режим live streaming
+      '-probesize', '32', // Минимальный размер probe (быстрый старт)
+      '-analyzeduration', '0', // Не анализировать поток заранее
+      // Reconnect флаги для стабильности
+      '-reconnect', '1',
+      '-reconnect_streamed', '1',
+      '-reconnect_delay_max', '2',
+      // Вход
       '-i', this.rtmpUrl, // Вход: RTMP поток
+      // Аудио декодирование
       '-vn', // Отключаем видео
       '-acodec', 'pcm_s16le', // PCM16 little-endian
       '-ar', '16000', // Sample rate 16kHz
@@ -197,11 +209,39 @@ class RTMPIngestImpl extends EventEmitter implements RTMPIngest {
     this.audioBytesSent = 0
     this.startAudioMetrics()
 
+    // Размер чанка для оптимальной задержки: ~100-200ms аудио
+    // PCM16, 16kHz, mono = 2 байта на сэмпл
+    // 100ms = 0.1s * 16000 samples/s * 2 bytes = 3200 bytes
+    // 200ms = 0.2s * 16000 samples/s * 2 bytes = 6400 bytes
+    const OPTIMAL_CHUNK_SIZE = 3200 // ~100ms аудио для минимальной задержки
+    let audioBuffer = Buffer.alloc(0)
+
     this.ffmpegProcess.stdout.on('data', (chunk: Buffer) => {
-      // Получаем PCM16 данные и отправляем в Gladia
+      // Получаем PCM16 данные и отправляем в Gladia мелкими чанками
       if (this.gladiaBridge && chunk.length > 0) {
         this.audioBytesSent += chunk.length
-        this.gladiaBridge.sendAudio(chunk)
+        
+        // Накапливаем данные в буфере
+        audioBuffer = Buffer.concat([audioBuffer, chunk])
+        
+        // Отправляем чанки оптимального размера для минимальной задержки
+        while (audioBuffer.length >= OPTIMAL_CHUNK_SIZE) {
+          const chunkToSend = audioBuffer.slice(0, OPTIMAL_CHUNK_SIZE)
+          audioBuffer = audioBuffer.slice(OPTIMAL_CHUNK_SIZE)
+          
+          const timestamp = Date.now()
+          this.gladiaBridge.sendAudio(chunkToSend)
+          
+          // Логируем отправку чанка (только периодически, чтобы не спамить)
+          if (Math.random() < 0.01) { // 1% логов
+            console.log('[RTMPIngest] Audio chunk sent to Gladia', {
+              sessionSlug: this.config.sessionSlug,
+              chunkSize: chunkToSend.length,
+              timestamp,
+              audioDurationMs: (chunkToSend.length / 2 / 16000) * 1000, // bytes / 2 / sampleRate * 1000
+            })
+          }
+        }
       }
     })
 
@@ -366,6 +406,7 @@ class RTMPIngestImpl extends EventEmitter implements RTMPIngest {
     }
 
     const postData = JSON.stringify(broadcastBody)
+    const httpRequestStartAt = Date.now()
 
     try {
       const url = new URL(wsBaseUrl)
@@ -387,12 +428,17 @@ class RTMPIngestImpl extends EventEmitter implements RTMPIngest {
 
       return new Promise<void>((resolve, reject) => {
         const req = httpModule.request(options, (res) => {
+          const httpResponseReceivedAt = Date.now()
+          const httpLatency = httpResponseReceivedAt - httpRequestStartAt
           let responseData = ''
           res.on('data', (chunk) => {
             responseData += chunk.toString()
           })
 
           res.on('end', () => {
+            const httpRequestCompleteAt = Date.now()
+            const totalHttpLatency = httpRequestCompleteAt - httpRequestStartAt
+            
             if (res.statusCode === 200) {
               try {
                 const response = JSON.parse(responseData)
@@ -402,6 +448,8 @@ class RTMPIngestImpl extends EventEmitter implements RTMPIngest {
                   status: res.statusCode,
                   sent: response.sent || 0,
                   textPreview: broadcastBody.text.slice(0, 80),
+                  httpLatencyMs: totalHttpLatency,
+                  timestamp: httpRequestCompleteAt,
                 })
                 resolve()
               } catch (parseError) {
@@ -471,6 +519,8 @@ class RTMPIngestImpl extends EventEmitter implements RTMPIngest {
   private handleTranscript(event: TranscriptEvent): void {
     if (!this.gladiaBridge) return
 
+    const transcriptReceivedAt = Date.now()
+
     // Получаем текущего активного спикера для этой сессии
     // active-speaker-tracker из LiveKit - основной источник
     // event.speakerId от Gladia - fallback (Gladia Live v2 не дает полноценной diarization)
@@ -478,7 +528,7 @@ class RTMPIngestImpl extends EventEmitter implements RTMPIngest {
     const speakerIdentity = activeSpeaker?.identity || event.speakerId || 'room'
     const speakerName = activeSpeaker?.name || event.speakerName || 'Meeting'
 
-    // Логируем получение транскрипта от Gladia
+    // Логируем получение транскрипта от Gladia с timestamp
     console.log('[RTMPIngest] Received transcript from Gladia', {
       sessionId: this.config.sessionId,
       sessionSlug: this.config.sessionSlug,
@@ -488,6 +538,8 @@ class RTMPIngestImpl extends EventEmitter implements RTMPIngest {
       speakerIdentity,
       speakerName,
       gladiaSpeakerId: event.speakerId,
+      timestamp: transcriptReceivedAt,
+      timestampISO: new Date(transcriptReceivedAt).toISOString(),
     })
 
     // Формируем payload для broadcast endpoint
@@ -502,14 +554,33 @@ class RTMPIngestImpl extends EventEmitter implements RTMPIngest {
     }
 
     // Отправляем транскрипт в WebSocket сервер через HTTP broadcast endpoint
-    this.sendTranscriptToWebSocketServer(this.config.sessionSlug, broadcastBody).catch((error) => {
-      console.error('[RTMPIngest] Failed to post transcript to WS broadcast (in catch)', {
-        sessionId: this.config.sessionId,
-        sessionSlug: this.config.sessionSlug,
-        error,
-        textPreview: event.text.slice(0, 80),
+    const sendStartAt = Date.now()
+    this.sendTranscriptToWebSocketServer(this.config.sessionSlug, broadcastBody)
+      .then(() => {
+        const sendCompleteAt = Date.now()
+        const sendLatency = sendCompleteAt - sendStartAt
+        const totalLatency = sendCompleteAt - transcriptReceivedAt
+        
+        // Логируем задержку доставки (только для финальных транскриптов или периодически)
+        if (event.isFinal || Math.random() < 0.1) { // 10% логов для interim
+          console.log('[RTMPIngest] Transcript delivery latency', {
+            sessionSlug: this.config.sessionSlug,
+            isFinal: event.isFinal,
+            httpLatencyMs: sendLatency,
+            totalLatencyFromGladiaMs: totalLatency,
+            textPreview: event.text.slice(0, 50),
+          })
+        }
       })
-    })
+      .catch((error) => {
+        console.error('[RTMPIngest] Failed to post transcript to WS broadcast (in catch)', {
+          sessionId: this.config.sessionId,
+          sessionSlug: this.config.sessionSlug,
+          error,
+          textPreview: event.text.slice(0, 80),
+          timestamp: Date.now(),
+        })
+      })
 
     // Сохраняем финальные транскрипты в БД
     if (event.isFinal) {

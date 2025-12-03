@@ -34,6 +34,7 @@ export interface TranscriptEvent {
   endedAt?: Date
   speakerId?: string // Speaker ID от Gladia (если доступно, но обычно нет в Live v2)
   speakerName?: string // Имя спикера (если доступно)
+  receivedAt?: number // Timestamp получения сообщения от Gladia (для дебага задержек)
 }
 
 export interface GladiaBridge {
@@ -137,6 +138,8 @@ export async function createGladiaBridge(): Promise<GladiaBridge> {
       return // Игнорируем сообщения после закрытия
     }
 
+    const messageReceivedAt = Date.now()
+
     try {
       const message: GladiaMessage = JSON.parse(data.toString())
       
@@ -144,7 +147,19 @@ export async function createGladiaBridge(): Promise<GladiaBridge> {
       const transcriptEvent = parseTranscriptMessage(message)
       
       if (transcriptEvent && transcriptCallback) {
+        // Добавляем timestamp получения сообщения
+        transcriptEvent.receivedAt = messageReceivedAt
         transcriptCallback(transcriptEvent)
+        
+        // Логируем получение транскрипта от Gladia (периодически)
+        if (Math.random() < 0.1) { // 10% логов
+          console.log('[GladiaBridge] Transcript received from Gladia', {
+            utteranceId: transcriptEvent.utteranceId,
+            isFinal: transcriptEvent.isFinal,
+            textPreview: transcriptEvent.text.slice(0, 50),
+            timestamp: messageReceivedAt,
+          })
+        }
       }
     } catch (error) {
       console.error('[GladiaBridge] Error parsing message:', {
@@ -182,7 +197,19 @@ export async function createGladiaBridge(): Promise<GladiaBridge> {
       
       if (isReady && gladiaWs.readyState === WebSocket.OPEN) {
         try {
+          const sendStartAt = Date.now()
           gladiaWs.send(chunk)
+          const sendCompleteAt = Date.now()
+          const sendLatency = sendCompleteAt - sendStartAt
+          
+          // Логируем задержку отправки (только периодически, чтобы не спамить)
+          if (Math.random() < 0.01) { // 1% логов
+            console.log('[GladiaBridge] Audio chunk sent', {
+              chunkSize: Buffer.isBuffer(chunk) ? chunk.length : chunk.byteLength,
+              sendLatencyMs: sendLatency,
+              timestamp: sendCompleteAt,
+            })
+          }
         } catch (error) {
           console.error('[GladiaBridge] Error sending audio chunk:', {
             error: error instanceof Error ? error.message : String(error),

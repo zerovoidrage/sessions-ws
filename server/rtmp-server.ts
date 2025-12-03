@@ -69,19 +69,25 @@ class RTMPServer extends EventEmitter {
 
     // Обработка подключения RTMP потока
     this.nms.on('preConnect', (id: string, args: any) => {
-      console.log(`[RTMPServer] RTMP client connecting: ${id}`, args)
+      console.log(`[RTMPServer] 🔵 RTMP client connecting: ${id}`, {
+        args: args ? Object.keys(args) : [],
+        timestamp: new Date().toISOString(),
+      })
     })
 
     this.nms.on('postConnect', (id: string, args: any) => {
-      console.log(`[RTMPServer] RTMP client connected: ${id}`)
+      console.log(`[RTMPServer] ✅ RTMP client connected: ${id}`, {
+        timestamp: new Date().toISOString(),
+      })
     })
 
     this.nms.on('prePublish', async (id: any, streamPath: string | undefined, args: any) => {
       // Node-Media-Server передает id как объект RtmpSession, а streamPath может быть внутри него
       const actualStreamPath = streamPath || id?.streamPath || args?.path || args?.streamPath
       const sessionId = typeof id === 'object' ? id?.id : id
-      console.log(`[RTMPServer] RTMP stream publishing: ${actualStreamPath}`, { 
+      console.log(`[RTMPServer] ✅ RTMP stream connecting: ${actualStreamPath}`, { 
         sessionId,
+        timestamp: new Date().toISOString(),
       })
       
       if (!actualStreamPath) {
@@ -110,7 +116,9 @@ class RTMPServer extends EventEmitter {
 
     this.nms.on('postPublish', (id: any, streamPath: string | undefined, args: any) => {
       const actualStreamPath = streamPath || id?.streamPath || args?.path || args?.streamPath
-      console.log(`[RTMPServer] RTMP stream published: ${actualStreamPath}`)
+      console.log(`[RTMPServer] ✅ RTMP stream published (data flowing): ${actualStreamPath}`, {
+        timestamp: new Date().toISOString(),
+      })
     })
 
     this.nms.on('donePublish', (id: any, streamPath: string | undefined, args: any) => {
@@ -151,6 +159,13 @@ class RTMPServer extends EventEmitter {
           console.error(`[RTMPServer] RTMP server error:`, error)
         }
         reject(error)
+      })
+      
+      // Логируем информацию о RTMP сервере перед запуском
+      console.log(`[RTMPServer] Starting RTMP server...`, {
+        port: this.rtmpPort,
+        registeredHandlers: Array.from(this.streamHandlers.keys()),
+        hasAutoIngest: !!this.autoIngestCallback,
       })
       
       // Запускаем сервер

@@ -49,6 +49,14 @@ export async function startRoomCompositeTranscription(
   const externalPort = options.rtmpPort || 
     parseInt(process.env.RTMP_EXTERNAL_PORT || process.env.RTMP_PORT || '1937', 10)
   
+  // Предупреждение, если используется localhost в production
+  if (defaultRtmpHost === 'localhost' && process.env.NODE_ENV === 'production') {
+    console.warn(`[RoomCompositeTranscriber] ⚠️ WARNING: Using localhost for RTMP host in production!`)
+    console.warn(`[RoomCompositeTranscriber] ⚠️ LiveKit Egress will NOT be able to connect to localhost on Railway.`)
+    console.warn(`[RoomCompositeTranscriber] ⚠️ Solution: Set RTMP_HOST to Railway TCP Proxy domain (e.g., nozomi.proxy.rlwy.net)`)
+    console.warn(`[RoomCompositeTranscriber] ⚠️ And set RTMP_EXTERNAL_PORT to the TCP Proxy external port (e.g., 58957)`)
+  }
+  
   // Внутренний порт для RTMP сервера (где FFmpeg подключается локально)
   // Это порт, на котором RTMP сервер слушает внутри контейнера (обычно 1937)
   const internalPort = parseInt(

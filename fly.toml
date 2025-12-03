@@ -13,28 +13,31 @@ primary_region = "fra"
   cpus = 1
   memory_mb = 256
 
-# HTTP/WebSocket сервис через http_service
-# Это автоматически поддерживает WebSocket upgrade
-[http_service]
+# HTTP/WebSocket сервис - точно как в официальной статье Fly.io
+[[services]]
   internal_port = 8080
-  force_https = true
-  auto_stop_machines = false
-  auto_start_machines = true
-  min_machines_running = 1
-  processes = ["app"]
+  protocol = "tcp"
 
-  [[http_service.checks]]
-    grace_period = "10s"
-    interval = "30s"
-    method = "GET"
-    timeout = "5s"
-    path = "/health"
+  [services.concurrency]
+    hard_limit = 25
+    soft_limit = 20
+
+  [[services.ports]]
+    handlers = ["http"]
+    port = "80"
+
+  [[services.ports]]
+    handlers = ["tls", "http"]
+    port = "443"
+
+  [[services.tcp_checks]]
+    interval = 10000
+    timeout = 2000
 
 # RTMP сервис на порту 1937 (TCP)
 [[services]]
   internal_port = 1937
   protocol = "tcp"
-  processes = ["app"]
 
   [[services.ports]]
     port = 1937

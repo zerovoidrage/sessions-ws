@@ -76,12 +76,21 @@ class RTMPServer extends EventEmitter {
       console.log(`[RTMPServer] RTMP client connected: ${id}`)
     })
 
-    this.nms.on('prePublish', async (id: string, streamPath: string, args: any) => {
-      console.log(`[RTMPServer] RTMP stream publishing: ${streamPath}`, { id, args })
-      // Иногда streamPath может быть в args
-      const actualStreamPath = streamPath || args?.path || args?.streamPath
+    this.nms.on('prePublish', async (id: any, streamPath: string | undefined, args: any) => {
+      // Node-Media-Server передает id как объект RtmpSession, а streamPath может быть внутри него
+      const actualStreamPath = streamPath || id?.streamPath || args?.path || args?.streamPath
+      const sessionId = typeof id === 'object' ? id?.id : id
+      console.log(`[RTMPServer] RTMP stream publishing: ${actualStreamPath}`, { 
+        sessionId,
+      })
+      
       if (!actualStreamPath) {
-        console.warn(`[RTMPServer] Could not determine streamPath from prePublish event`, { id, streamPath, args })
+        console.warn(`[RTMPServer] Could not determine streamPath from prePublish event`, { 
+          id: typeof id === 'object' ? id?.id : id, 
+          streamPath, 
+          args,
+          idKeys: typeof id === 'object' ? Object.keys(id || {}) : [],
+        })
         return
       }
       
@@ -99,17 +108,26 @@ class RTMPServer extends EventEmitter {
       }
     })
 
-    this.nms.on('postPublish', (id: string, streamPath: string, args: any) => {
-      console.log(`[RTMPServer] RTMP stream published: ${streamPath}`)
+    this.nms.on('postPublish', (id: any, streamPath: string | undefined, args: any) => {
+      const actualStreamPath = streamPath || id?.streamPath || args?.path || args?.streamPath
+      console.log(`[RTMPServer] RTMP stream published: ${actualStreamPath}`)
     })
 
-    this.nms.on('donePublish', (id: string, streamPath: string, args: any) => {
-      console.log(`[RTMPServer] RTMP stream ended: ${streamPath}`, { id, args })
-      const actualStreamPath = streamPath || args?.path || args?.streamPath
+    this.nms.on('donePublish', (id: any, streamPath: string | undefined, args: any) => {
+      // Node-Media-Server передает id как объект RtmpSession, а streamPath может быть внутри него
+      const actualStreamPath = streamPath || id?.streamPath || args?.path || args?.streamPath
+      console.log(`[RTMPServer] RTMP stream ended: ${actualStreamPath}`)
+      
       if (!actualStreamPath) {
-        console.warn(`[RTMPServer] Could not determine streamPath from donePublish event`, { id, streamPath, args })
+        console.warn(`[RTMPServer] Could not determine streamPath from donePublish event`, { 
+          id: typeof id === 'object' ? id?.id : id, 
+          streamPath, 
+          args,
+          idKeys: typeof id === 'object' ? Object.keys(id || {}) : [],
+        })
         return
       }
+      
       const handler = this.streamHandlers.get(actualStreamPath)
       if (handler) {
         handler.onStreamEnd(actualStreamPath)

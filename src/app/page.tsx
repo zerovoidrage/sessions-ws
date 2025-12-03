@@ -79,9 +79,9 @@ export default function HomePage() {
   }
 
   return (
-    <div className="h-screen overflow-y-scroll snap-y snap-mandatory scrollbar-hide bg-surface-900 text-sm">
+    <div className="h-screen h-[100dvh] overflow-y-scroll snap-y snap-mandatory scrollbar-hide bg-surface-900 text-sm">
       {/* First Section - Full Screen */}
-      <section className="h-screen snap-start snap-always flex flex-col">
+      <section className="h-screen h-[100dvh] snap-start snap-always flex flex-col min-h-0">
         {/* Header */}
         <header className="w-full px-3 py-3 flex items-center justify-between">
           <Image
@@ -100,7 +100,7 @@ export default function HomePage() {
         </header>
 
         {/* Main content - centered title with typing animation */}
-        <div className="flex-1 flex items-center justify-center px-4">
+        <div className="flex-1 flex items-center justify-center px-4 min-h-0">
           <h1 className="text-[18px] sm:text-[18px] tracking-[-0.02em] text-white-900 leading-[1.5] text-center max-w-full">
             <span className="inline">
               {displayText}
@@ -127,12 +127,12 @@ export default function HomePage() {
       </section>
 
       {/* Second Section - Full Screen with Download Button */}
-      <section className="h-screen snap-start snap-always flex items-center justify-center px-4 bg-white-900">
+      <section className="h-screen h-[100dvh] snap-start snap-always flex items-center justify-center px-4 bg-white-900">
         <StartSessionButton 
           onClick={handleDownloadDeck} 
           className="justify-between px-6 bg-surface-900 text-white-900 w-full max-w-[calc(100vw-32px)] sm:w-[260px]"
         >
-          <span>Download Deck</span>
+          <span>Short Deck</span>
           <DownloadSimple size={14} />
         </StartSessionButton>
       </section>

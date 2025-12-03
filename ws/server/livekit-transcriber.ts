@@ -175,8 +175,12 @@ class ServerTranscriberImpl implements ServerTranscriber {
       console.log(`[ServerTranscriber] Connected to room ${this.sessionSlug}`)
 
       // 3. Инициализируем Gladia bridge
-      this.gladiaBridge = await createGladiaBridge()
-      this.gladiaBridge.onTranscript((event) => this.handleTranscript(event))
+      const gladiaBridge = await createGladiaBridge()
+      if (!gladiaBridge) {
+        throw new Error('[ServerTranscriber] Failed to create Gladia bridge')
+      }
+      this.gladiaBridge = gladiaBridge
+      gladiaBridge.onTranscript((event) => this.handleTranscript(event))
 
       // 4. Создаём аудио контекст для микширования
       // В Node.js это может потребовать полифиллы или альтернативный подход

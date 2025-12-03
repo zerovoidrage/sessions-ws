@@ -196,14 +196,16 @@ const server = http.createServer(async (req, res) => {
             }
 
             // Отправляем ошибку клиентам через WebSocket
-            const reason = isUnauthorized ? 'livekit_unauthorized' : 'internal_error'
-            sendTranscriptionErrorToSessionClients(
-              sessionSlug,
-              reason,
-              isUnauthorized
-                ? 'Failed to start transcription: LiveKit authentication failed. Please check API credentials.'
-                : undefined
-            )
+            if (sessionSlug) {
+              const reason = isUnauthorized ? 'livekit_unauthorized' : 'internal_error'
+              sendTranscriptionErrorToSessionClients(
+                sessionSlug,
+                reason,
+                isUnauthorized
+                  ? 'Failed to start transcription: LiveKit authentication failed. Please check API credentials.'
+                  : undefined
+              )
+            }
           })
       } catch (parseError: any) {
         console.error('[WS-SERVER] ❌ Error parsing request or starting transcription:', parseError)
@@ -427,7 +429,7 @@ if (SERVER_MODE !== 'rtmp') {
         host: req.headers.host,
         origin: req.headers.origin,
       },
-      remoteAddress: socket.remoteAddress,
+      remoteAddress: (socket as any).remoteAddress,
     })
 
     // В режиме RTMP-only отклоняем WebSocket запросы

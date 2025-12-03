@@ -67,6 +67,11 @@ export function getLiveKitConfig(): LiveKitConfig {
     )
   }
 
+  // TypeScript guard: после проверки missing.length > 0 все обязательные поля точно не undefined
+  if (!wsUrl || !httpUrl || !apiKey || !apiSecret) {
+    throw new Error('[LiveKitEnv] Internal error: required fields are undefined after validation')
+  }
+
   // Валидация формата URL
   if (!wsUrl.startsWith('ws') && !wsUrl.startsWith('wss')) {
     throw new Error(

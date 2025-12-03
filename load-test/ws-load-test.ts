@@ -30,7 +30,7 @@ interface Participant {
   identity: string
   name: string
   ws: WebSocket | null
-  room: Room | null
+  room: any | null // Room from livekit-client (optional, may not be available)
   connected: boolean
   roomConnected: boolean
   chunksSent: number

@@ -1,10 +1,11 @@
 import { endSession } from '../application/endSession'
 import { getSessionBySlug } from '../infra/prisma/sessions.repository'
+import { getUserRoleInSpace } from '../../spaces/infra/spaces.repository'
 import type { DomainUser } from '../../identity/domain/user.types'
 
 /**
  * API endpoint для завершения сессии.
- * Проверяет права пользователя (создатель сессии или owner space),
+ * Проверяет права пользователя (OWNER/ADMIN space),
  * затем вызывает use-case endSession.
  */
 export async function endSessionEndpoint(
@@ -21,16 +22,19 @@ export async function endSessionEndpoint(
     throw new Error('NOT_FOUND: Session not found')
   }
 
-  // Проверяем права: создатель сессии или owner space
-  // TODO: добавить проверку прав на space (owner/member)
-  const isCreator = session.createdByUserId === user.id
-  if (!isCreator) {
-    // Можно расширить проверку прав на space позже
-    throw new Error('FORBIDDEN: Only session creator can end the session')
+  // Идемпотентность: если сессия уже ENDED или EXPIRED, возвращаем успех
+  if (session.status === 'ENDED' || session.status === 'EXPIRED') {
+    return { status: 'ok' }
   }
 
-  // Вызываем use-case
-  await endSession(session.id)
+  // Проверяем права: только OWNER space может завершить сессию
+  const role = await getUserRoleInSpace(user.id, session.spaceId)
+  if (role !== 'OWNER') {
+    throw new Error('FORBIDDEN: Only space owner can end the session')
+  }
+
+  // Вызываем use-case с userId для записи endedByUserId
+  await endSession(session.id, user.id)
 
   return { status: 'ok' }
 }

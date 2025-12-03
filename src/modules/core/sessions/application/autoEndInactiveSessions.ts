@@ -1,4 +1,4 @@
-import { findInactiveLiveSessions, updateSessionStatus } from '../infra/prisma/sessions.repository'
+import { findInactiveLiveSessions, autoEndSession } from '../infra/prisma/sessions.repository'
 import { scheduleSessionForAnalysis } from './scheduleSessionForAnalysis'
 
 /**
@@ -12,7 +12,7 @@ const INACTIVE_MINUTES = 30
 /**
  * Use-case: автоматическое завершение неактивных LIVE сессий.
  * Находит все LIVE сессии, которые неактивны более N минут,
- * и переводит их в статус ENDED.
+ * и переводит их в статус ENDED с endReason = AUTO_EMPTY_ROOM.
  * 
  * Также создаёт записи SessionAnalysis для завершённых сессий.
  * 
@@ -22,13 +22,17 @@ export async function autoEndInactiveSessions(): Promise<number> {
   const inactiveSessions = await findInactiveLiveSessions(INACTIVE_MINUTES)
   
   let endedCount = 0
-  const now = new Date()
 
   for (const session of inactiveSessions) {
     try {
-      // Переводим в ENDED
-      await updateSessionStatus(session.id, 'ENDED', {
-        endedAt: now,
+      // Проверяем, что сессия все еще LIVE (идемпотентность)
+      if (session.status !== 'LIVE') {
+        continue
+      }
+
+      // Используем новый метод репозитория для автоматического завершения
+      await autoEndSession({
+        sessionId: session.id,
       })
 
       // Запускаем подготовку для AI-анализа

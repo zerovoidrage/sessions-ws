@@ -1,0 +1,13 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/auto-end-sessions",
+      "schedule": "*/10 * * * *"
+    },
+    {
+      "path": "/api/cron/expire-sessions",
+      "schedule": "0 * * * *"
+    }
+  ]
+}
+

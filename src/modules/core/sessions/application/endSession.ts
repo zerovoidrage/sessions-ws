@@ -1,26 +1,33 @@
-import { getSessionById, updateSessionStatus } from '../infra/prisma/sessions.repository'
+import { getSessionById, endSessionByAdmin } from '../infra/prisma/sessions.repository'
 import { scheduleSessionForAnalysis } from './scheduleSessionForAnalysis'
 import { finalizeSessionTranscript } from './finalizeSessionTranscript'
 import { stopServerTranscription } from './stopServerTranscription'
 
 /**
- * Use-case: завершение сессии.
- * Переводит сессию из LIVE в ENDED, устанавливает endedAt,
+ * Use-case: завершение сессии администратором.
+ * Переводит сессию из LIVE в ENDED, устанавливает endReason = ADMIN_ENDED,
+ * записывает endedByUserId, рассчитывает durationSeconds,
  * останавливает серверную транскрипцию,
  * сохраняет сырой транскрипт в Vercel Blob,
  * и запускает подготовку для AI-анализа.
  */
-export async function endSession(sessionId: string): Promise<void> {
+export async function endSession(sessionId: string, endedByUserId: string): Promise<void> {
   const session = await getSessionById(sessionId)
   if (!session) {
     throw new Error('NOT_FOUND: Session not found')
   }
 
+  // Идемпотентность: если сессия уже ENDED или EXPIRED, ничего не делаем
+  if (session.status === 'ENDED' || session.status === 'EXPIRED') {
+    return
+  }
+
   // Переводим только LIVE сессии в ENDED
   if (session.status === 'LIVE') {
-    const now = new Date()
-    await updateSessionStatus(sessionId, 'ENDED', {
-      endedAt: now,
+    // Используем новый метод репозитория для завершения
+    await endSessionByAdmin({
+      sessionId,
+      endedByUserId,
     })
 
     // Останавливаем серверную транскрипцию
@@ -43,7 +50,7 @@ export async function endSession(sessionId: string): Promise<void> {
     // Запускаем подготовку для AI-анализа
     await scheduleSessionForAnalysis(sessionId)
   }
-  // Если сессия уже ENDED, EXPIRED или CREATED - ничего не делаем
+  // Если сессия в статусе CREATED - ничего не делаем (нельзя завершить неактивированную сессию)
 }
 
 

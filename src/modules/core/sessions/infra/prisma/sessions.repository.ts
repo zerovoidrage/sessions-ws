@@ -1,5 +1,5 @@
 import { db } from '@/lib/db'
-import type { Session, CreateSessionInput, GetSessionBySlugInput } from '../../domain/session.types'
+import type { Session, CreateSessionInput, GetSessionBySlugInput, SessionEndReason } from '../../domain/session.types'
 
 export async function createSession(input: CreateSessionInput & { slug: string }): Promise<Session> {
   const session = await db.videoSession.create({
@@ -26,6 +26,9 @@ export async function createSession(input: CreateSessionInput & { slug: string }
     startedAt: session.startedAt,
     endedAt: session.endedAt,
     lastActivityAt: session.lastActivityAt,
+    endReason: session.endReason as SessionEndReason | null,
+    endedByUserId: session.endedByUserId,
+    durationSeconds: session.durationSeconds,
     rawTranscriptBlobUrl: session.rawTranscriptBlobUrl,
     rawTranscriptSizeBytes: session.rawTranscriptSizeBytes,
     rawTranscriptReadyAt: session.rawTranscriptReadyAt,
@@ -50,6 +53,9 @@ export async function getSessionBySlug(input: GetSessionBySlugInput): Promise<Se
     startedAt: session.startedAt,
     endedAt: session.endedAt,
     lastActivityAt: session.lastActivityAt,
+    endReason: session.endReason as SessionEndReason | null,
+    endedByUserId: session.endedByUserId,
+    durationSeconds: session.durationSeconds,
     rawTranscriptBlobUrl: session.rawTranscriptBlobUrl,
     rawTranscriptSizeBytes: session.rawTranscriptSizeBytes,
     rawTranscriptReadyAt: session.rawTranscriptReadyAt,
@@ -78,6 +84,12 @@ export async function listSessionsBySpace(spaceId: string): Promise<Session[]> {
     startedAt: s.startedAt,
     endedAt: s.endedAt,
     lastActivityAt: s.lastActivityAt,
+    endReason: s.endReason as SessionEndReason | null,
+    endedByUserId: s.endedByUserId,
+    durationSeconds: s.durationSeconds,
+    rawTranscriptBlobUrl: s.rawTranscriptBlobUrl,
+    rawTranscriptSizeBytes: s.rawTranscriptSizeBytes,
+    rawTranscriptReadyAt: s.rawTranscriptReadyAt,
   }))
 }
 
@@ -99,6 +111,9 @@ export async function getSessionById(sessionId: string): Promise<Session | null>
     startedAt: session.startedAt,
     endedAt: session.endedAt,
     lastActivityAt: session.lastActivityAt,
+    endReason: session.endReason as SessionEndReason | null,
+    endedByUserId: session.endedByUserId,
+    durationSeconds: session.durationSeconds,
     rawTranscriptBlobUrl: session.rawTranscriptBlobUrl,
     rawTranscriptSizeBytes: session.rawTranscriptSizeBytes,
     rawTranscriptReadyAt: session.rawTranscriptReadyAt,
@@ -122,6 +137,9 @@ export async function updateSessionStatus(
     startedAt?: Date | null
     endedAt?: Date | null
     lastActivityAt?: Date | null
+    endReason?: SessionEndReason | null
+    endedByUserId?: string | null
+    durationSeconds?: number | null
   }
 ): Promise<Session> {
   const session = await db.videoSession.update({
@@ -131,6 +149,9 @@ export async function updateSessionStatus(
       ...(additionalData?.startedAt !== undefined && { startedAt: additionalData.startedAt }),
       ...(additionalData?.endedAt !== undefined && { endedAt: additionalData.endedAt }),
       ...(additionalData?.lastActivityAt !== undefined && { lastActivityAt: additionalData.lastActivityAt }),
+      ...(additionalData?.endReason !== undefined && { endReason: additionalData.endReason }),
+      ...(additionalData?.endedByUserId !== undefined && { endedByUserId: additionalData.endedByUserId }),
+      ...(additionalData?.durationSeconds !== undefined && { durationSeconds: additionalData.durationSeconds }),
     },
   })
 
@@ -145,6 +166,9 @@ export async function updateSessionStatus(
     startedAt: session.startedAt,
     endedAt: session.endedAt,
     lastActivityAt: session.lastActivityAt,
+    endReason: session.endReason as SessionEndReason | null,
+    endedByUserId: session.endedByUserId,
+    durationSeconds: session.durationSeconds,
     rawTranscriptBlobUrl: session.rawTranscriptBlobUrl,
     rawTranscriptSizeBytes: session.rawTranscriptSizeBytes,
     rawTranscriptReadyAt: session.rawTranscriptReadyAt,
@@ -184,6 +208,12 @@ export async function findInactiveLiveSessions(inactiveMinutes: number): Promise
     startedAt: s.startedAt,
     endedAt: s.endedAt,
     lastActivityAt: s.lastActivityAt,
+    endReason: s.endReason as SessionEndReason | null,
+    endedByUserId: s.endedByUserId,
+    durationSeconds: s.durationSeconds,
+    rawTranscriptBlobUrl: s.rawTranscriptBlobUrl,
+    rawTranscriptSizeBytes: s.rawTranscriptSizeBytes,
+    rawTranscriptReadyAt: s.rawTranscriptReadyAt,
   }))
 }
 
@@ -210,7 +240,100 @@ export async function findOldCreatedSessions(expireHours: number): Promise<Sessi
     startedAt: s.startedAt,
     endedAt: s.endedAt,
     lastActivityAt: s.lastActivityAt,
+    endReason: s.endReason as SessionEndReason | null,
+    endedByUserId: s.endedByUserId,
+    durationSeconds: s.durationSeconds,
+    rawTranscriptBlobUrl: s.rawTranscriptBlobUrl,
+    rawTranscriptSizeBytes: s.rawTranscriptSizeBytes,
+    rawTranscriptReadyAt: s.rawTranscriptReadyAt,
   }))
+}
+
+/**
+ * Завершение сессии администратором (ручное завершение)
+ */
+export async function endSessionByAdmin(params: {
+  sessionId: string
+  endedByUserId: string
+}): Promise<Session> {
+  const session = await db.videoSession.findUnique({
+    where: { id: params.sessionId },
+  })
+
+  if (!session) {
+    throw new Error('NOT_FOUND: Session not found')
+  }
+
+  const now = new Date()
+  const endedAt = session.endedAt || now
+  const durationSeconds = session.startedAt
+    ? Math.floor((endedAt.getTime() - session.startedAt.getTime()) / 1000)
+    : null
+
+  return updateSessionStatus(params.sessionId, 'ENDED', {
+    endReason: 'ADMIN_ENDED',
+    endedByUserId: params.endedByUserId,
+    endedAt,
+    lastActivityAt: now,
+    durationSeconds,
+  })
+}
+
+/**
+ * Автоматическое завершение неактивной сессии
+ */
+export async function autoEndSession(params: {
+  sessionId: string
+}): Promise<Session> {
+  const session = await db.videoSession.findUnique({
+    where: { id: params.sessionId },
+  })
+
+  if (!session) {
+    throw new Error('NOT_FOUND: Session not found')
+  }
+
+  if (session.status !== 'LIVE') {
+    // Идемпотентность: если уже не LIVE, возвращаем текущее состояние
+    return getSessionById(params.sessionId) as Promise<Session>
+  }
+
+  const now = new Date()
+  const endedAt = session.endedAt || now
+  const durationSeconds = session.startedAt
+    ? Math.floor((endedAt.getTime() - session.startedAt.getTime()) / 1000)
+    : null
+
+  return updateSessionStatus(params.sessionId, 'ENDED', {
+    endReason: 'AUTO_EMPTY_ROOM',
+    endedAt,
+    lastActivityAt: now,
+    durationSeconds,
+  })
+}
+
+/**
+ * Истечение срока действия неактивированной сессии
+ */
+export async function expireCreatedSession(sessionId: string): Promise<Session> {
+  const session = await db.videoSession.findUnique({
+    where: { id: sessionId },
+  })
+
+  if (!session) {
+    throw new Error('NOT_FOUND: Session not found')
+  }
+
+  if (session.status !== 'CREATED') {
+    // Идемпотентность: если уже не CREATED, возвращаем текущее состояние
+    return getSessionById(sessionId) as Promise<Session>
+  }
+
+  return updateSessionStatus(sessionId, 'EXPIRED', {
+    endReason: 'EXPIRED_NO_JOIN',
+    endedAt: null,
+    durationSeconds: null,
+  })
 }
 
 export async function deleteSessionById(sessionId: string): Promise<void> {

@@ -64,6 +64,8 @@ class RTMPIngestImpl extends EventEmitter implements RTMPIngest {
   // Телеметрия для точного отслеживания задержек
   private lastAudioChunkSentAt: number | null = null
   private lastTranscriptReceivedAt: number | null = null
+  // Трекер последней нормальной (нетривиальной) реплики для фильтрации галлюцинаций
+  private lastNonTrivialTranscriptAt: number | null = null
 
   constructor(
     private config: RTMPIngestConfig
@@ -246,7 +248,7 @@ class RTMPIngestImpl extends EventEmitter implements RTMPIngest {
 
     // Флаг для отслеживания успешного старта FFmpeg
     let ffmpegStartedSuccessfully = false
-    
+
     this.ffmpegProcess.stdout.on('data', (chunk: Buffer) => {
       // Если FFmpeg начал выдавать данные - значит он успешно запустился
       if (!ffmpegStartedSuccessfully && chunk.length > 0) {
@@ -453,8 +455,8 @@ class RTMPIngestImpl extends EventEmitter implements RTMPIngest {
           sessionId: this.config.sessionId,
           error,
         })
-    }
-    
+      }
+      
     this.ffmpegProcess = null
     this.stopAudioMetrics()
     this.ffmpegRestartAttempts = 0
@@ -462,6 +464,7 @@ class RTMPIngestImpl extends EventEmitter implements RTMPIngest {
     // Сбрасываем телеметрию при остановке FFmpeg
     this.lastAudioChunkSentAt = null
     this.lastTranscriptReceivedAt = null
+    this.lastNonTrivialTranscriptAt = null
   }
   }
 
@@ -631,6 +634,60 @@ class RTMPIngestImpl extends EventEmitter implements RTMPIngest {
     const now = Date.now()
     this.lastTranscriptReceivedAt = now
 
+    // Обработка текста транскрипта
+    const rawText = event.text ?? ''
+    const text = rawText.trim()
+
+    // Если вообще пусто или нет букв/цифр — просто обновляем lastTranscript и выходим
+    if (!text || !/[a-zA-Zа-яА-Я0-9]/.test(text)) {
+      return
+    }
+
+    const words = text.split(/\s+/)
+    const wordCount = words.length
+    const charCount = text.length
+
+    // Сколько времени прошло с последнего аудио чанка и последней нетривиальной реплики
+    const msSinceLastAudioChunk = this.lastAudioChunkSentAt
+      ? now - this.lastAudioChunkSentAt
+      : 0
+
+    const msSinceLastNonTrivial = this.lastNonTrivialTranscriptAt
+      ? now - this.lastNonTrivialTranscriptAt
+      : 0
+
+    // Определяем узкий хелпер для фраз, которые мы уже видели как галлюцинации
+    const looksLikeSuspiciousFiller =
+      wordCount <= 3 &&
+      charCount <= 20 &&
+      /^(спасибо\.?|продолжение\.?)$/i.test(text)
+
+    // Анти-галлюцинационный фильтр (только для финальных транскриптов)
+    if (
+      event.isFinal &&                     // только финальные
+      looksLikeSuspiciousFiller &&         // очень короткий "спасибо/продолжение"
+      this.lastAudioChunkSentAt &&         // у нас есть референс по аудио
+      msSinceLastAudioChunk > 3500 &&      // давно не было аудио
+      msSinceLastNonTrivial > 3500         // и давно не было нормальной реплики
+    ) {
+      console.warn('[STT] ⚠️ Dropping probable hallucination on silence', {
+        sessionId: this.config.sessionId,
+        sessionSlug: this.config.sessionSlug,
+        text,
+        msSinceLastAudioChunk,
+        msSinceLastNonTrivial,
+        utteranceId: event.utteranceId,
+      })
+
+      recordCounter('stt.filtered_hallucinations')
+      return
+    }
+
+    // Если текст не является подозрительным фильлером, обновляем трекер нормальных реплик
+    if (!looksLikeSuspiciousFiller) {
+      this.lastNonTrivialTranscriptAt = now
+    }
+
     // Телеметрия: задержка от последней отправки аудио до получения транскрипта
     // Используем receivedAt от Gladia Bridge для более точного измерения
     if (event.receivedAt) {
@@ -652,7 +709,7 @@ class RTMPIngestImpl extends EventEmitter implements RTMPIngest {
           sessionSlug: this.config.sessionSlug,
           diffMs: diff,
           isFinal: event.isFinal,
-          textPreview: event.text.slice(0, 80),
+          textPreview: text.slice(0, 80),
         })
       }
     } else {
@@ -685,7 +742,7 @@ class RTMPIngestImpl extends EventEmitter implements RTMPIngest {
     console.log('[RTMPIngest] 📨 Received transcript from Gladia', {
       sessionId: this.config.sessionId,
       sessionSlug: this.config.sessionSlug,
-      textPreview: event.text.slice(0, 80),
+      textPreview: text.slice(0, 80),
       isFinal: event.isFinal,
       utteranceId: event.utteranceId,
       speakerIdentity,
@@ -704,7 +761,7 @@ class RTMPIngestImpl extends EventEmitter implements RTMPIngest {
     const broadcastBody = {
       sessionSlug: this.config.sessionSlug,
       utteranceId: event.utteranceId,
-      text: event.text,
+      text: text, // Используем обработанный текст
       isFinal: event.isFinal,
       speaker: speakerIdentity,
       speakerId: speakerIdentity,
@@ -761,20 +818,20 @@ class RTMPIngestImpl extends EventEmitter implements RTMPIngest {
               sessionSlug: this.config.sessionSlug,
               isFinal: event.isFinal,
               utteranceId: event.utteranceId,
-              textPreview: event.text.slice(0, 50),
+              textPreview: text.slice(0, 50),
               httpPostLatencyMs: httpLatency,
             })
           }
         })
         .catch((error) => {
-          console.error('[RTMPIngest] Failed to post transcript to WS broadcast (in catch)', {
-            sessionId: this.config.sessionId,
-            sessionSlug: this.config.sessionSlug,
-            error,
-            textPreview: event.text.slice(0, 80),
+      console.error('[RTMPIngest] Failed to post transcript to WS broadcast (in catch)', {
+        sessionId: this.config.sessionId,
+        sessionSlug: this.config.sessionSlug,
+        error,
+        textPreview: text.slice(0, 80),
             timestamp: Date.now(),
-          })
-        })
+      })
+    })
     }
 
     // Сохраняем финальные транскрипты в БД
@@ -783,7 +840,7 @@ class RTMPIngestImpl extends EventEmitter implements RTMPIngest {
         sessionSlug: this.config.sessionSlug,
         participantIdentity: speakerIdentity !== 'room' ? speakerIdentity : undefined,
         utteranceId: event.utteranceId,
-        text: event.text,
+        text: text, // Используем обработанный текст
         isFinal: true,
         startedAt: event.startedAt,
         endedAt: event.endedAt,

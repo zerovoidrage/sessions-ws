@@ -98,9 +98,16 @@ model VideoSession {
   analysis           SessionAnalysis?
 
   // Raw transcript storage in Vercel Blob
-  rawTranscriptBlobUrl   String?   // URL на JSON в Vercel Blob
-  rawTranscriptSizeBytes Int?      // размер файла в байтах
+  rawTranscriptBlobUrl   String? // URL на JSON в Vercel Blob
+  rawTranscriptSizeBytes Int? // размер файла в байтах
   rawTranscriptReadyAt   DateTime? // когда мы собрали и сохранили сырой транскрипт
+
+  // Причина завершения сессии
+  endReason       SessionEndReason?
+  // ID пользователя, который завершил сессию
+  endedByUserId   String?
+  // Длительность сессии в секундах (рассчитывается при завершении)
+  durationSeconds Int?
 
   @@index([spaceId])
   @@index([createdByUserId])
@@ -148,10 +155,16 @@ model VerificationToken {
 }
 
 enum SessionStatus {
-  CREATED   // сессия создана, но ещё никто не заходил
-  LIVE      // хотя бы один участник заходил (мит реально стартовал)
-  ENDED     // мит закончился, готов к AI-анализу
-  EXPIRED   // мит так и не начался и протух
+  CREATED // сессия создана, но ещё никто не заходил
+  LIVE // хотя бы один участник заходил (мит реально стартовал)
+  ENDED // мит закончился, готов к AI-анализу
+  EXPIRED // мит так и не начался и протух
+}
+
+enum SessionEndReason {
+  ADMIN_ENDED // владелец/админ нажал End session
+  AUTO_EMPTY_ROOM // все вышли, авто-завершение по таймеру
+  EXPIRED_NO_JOIN // никто не зашёл, сессия протухла
 }
 
 model Participant {
@@ -238,25 +251,25 @@ model TranscriptionUsage {
 }
 
 model SessionAnalysis {
-  id         String          @id @default(cuid())
-  sessionId  String          @unique
-  session    VideoSession    @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  id        String       @id @default(cuid())
+  sessionId String       @unique
+  session   VideoSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
-  status     AnalysisStatus  @default(PENDING)
-  createdAt  DateTime        @default(now())
-  updatedAt  DateTime        @updatedAt
+  status    AnalysisStatus @default(PENDING)
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
 
-  summary    String?
-  tasksJson  Json?
-  risksJson  Json?
+  summary   String?
+  tasksJson Json?
+  risksJson Json?
 
   @@index([sessionId])
   @@index([status])
 }
 
 enum AnalysisStatus {
-  PENDING   // сессия завершена, анализ ещё не стартовал или в очереди
-  RUNNING   // анализ в процессе
-  DONE      // анализ успешно завершён, summary/tasks заполнены
-  FAILED    // анализ упал (можно перезапустить)
+  PENDING // сессия завершена, анализ ещё не стартовал или в очереди
+  RUNNING // анализ в процессе
+  DONE // анализ успешно завершён, summary/tasks заполнены
+  FAILED // анализ упал (можно перезапустить)
 }

@@ -13,6 +13,7 @@
 import { EventEmitter } from 'events'
 import { spawn } from 'child_process'
 import http from 'http'
+import https from 'https'
 import { getGlobalRTMPServer, startGlobalRTMPServer, type RTMPStreamHandler } from './rtmp-server.js'
 import { createGladiaBridge, type TranscriptEvent } from './gladia-bridge.js'
 import { broadcastToSessionClients } from './client-connection.js'
@@ -379,11 +380,13 @@ class RTMPIngestImpl extends EventEmitter implements RTMPIngest {
           'Content-Type': 'application/json',
           'Content-Length': Buffer.byteLength(postData),
         },
-        protocol: url.protocol,
       }
 
+      // Используем правильный модуль в зависимости от протокола
+      const httpModule = url.protocol === 'https:' ? https : http
+
       return new Promise<void>((resolve, reject) => {
-        const req = http.request(options, (res) => {
+        const req = httpModule.request(options, (res) => {
           let responseData = ''
           res.on('data', (chunk) => {
             responseData += chunk.toString()

@@ -391,63 +391,77 @@ server.on('error', (error: any) => {
   }
 })
 
-// Слушаем на 0.0.0.0 чтобы Railway/Fly.io proxy мог подключиться
-server.listen(port, '0.0.0.0', async () => {
-  const serverMode = SERVER_MODE || 'both'
-  console.log(`[WS-SERVER] ✅ Server running in mode: ${serverMode}`)
+// В режиме RTMP-only запускаем только RTMP сервер, без HTTP
+if (SERVER_MODE === 'rtmp') {
+  console.log(`[WS-SERVER] ✅ Server running in RTMP-only mode`)
   
-  if (SERVER_MODE !== 'rtmp') {
-    // WebSocket сервер запускается только если не в режиме RTMP-only
+  try {
+    await startGlobalRTMPServer()
+    console.log(`[WS-SERVER] ✅ RTMP server started on port ${RTMP_PORT}`)
+  } catch (error: any) {
+    console.error(`[WS-SERVER] ❌ Failed to start RTMP server:`, error)
+    if (error?.code === 'EADDRINUSE') {
+      console.error(`[WS-SERVER] ❌ RTMP port ${RTMP_PORT} is already in use.`)
+    }
+    console.error(`[WS-SERVER] ❌ RTMP server failed to start in RTMP-only mode. Exiting.`)
+    process.exit(1)
+  }
+  
+  // Graceful shutdown для RTMP режима
+  process.on('SIGTERM', async () => {
+    console.log('[WS-SERVER] SIGTERM received, shutting down gracefully...')
+    process.exit(0)
+  })
+} else {
+  // Режим WebSocket или оба сервера - запускаем HTTP сервер
+  server.listen(port, '0.0.0.0', async () => {
+    const serverMode = SERVER_MODE || 'both'
+    console.log(`[WS-SERVER] ✅ Server running in mode: ${serverMode}`)
+    
     console.log(`[WS-SERVER] ✅ WebSocket server running on port ${port}`)
     console.log(`[WS-SERVER] Metrics endpoint: http://0.0.0.0:${port}/metrics`)
     console.log(`[WS-SERVER] Health check: http://0.0.0.0:${port}/health`)
     console.log(`[WS-SERVER] WebSocket endpoint: ws://0.0.0.0:${port}/api/realtime/transcribe`)
-  }
-  
-  // Запускаем глобальный RTMP сервер в зависимости от режима
-  if (SERVER_MODE === 'ws') {
-    // WebSocket-only режим: RTMP сервер не запускается
-    console.log(`[WS-SERVER] RTMP server disabled (SERVER_MODE=ws)`)
-  } else {
-    // Запускаем RTMP сервер в режиме 'rtmp' или 'both'
-    if (port === RTMP_PORT) {
-      console.error(`[WS-SERVER] ⚠️ Skipping RTMP server startup: HTTP/WebSocket server is already using port ${RTMP_PORT}`)
-      console.error(`[WS-SERVER] ⚠️ Room Composite Egress transcription will not work.`)
-      console.error(`[WS-SERVER] ⚠️ Solution: Set SERVER_MODE=rtmp for RTMP-only service, or use different ports.`)
+    
+    // Запускаем глобальный RTMP сервер в зависимости от режима
+    if (SERVER_MODE === 'ws') {
+      // WebSocket-only режим: RTMP сервер не запускается
+      console.log(`[WS-SERVER] RTMP server disabled (SERVER_MODE=ws)`)
     } else {
-      try {
-        await startGlobalRTMPServer()
-        console.log(`[WS-SERVER] ✅ RTMP server started for Room Composite Egress on port ${RTMP_PORT}`)
-      } catch (error: any) {
-        // Если ошибка EADDRINUSE, порт уже занят
-        if (error?.code === 'EADDRINUSE') {
-          console.error(`[WS-SERVER] ⚠️ RTMP port ${RTMP_PORT} is already in use. Skipping RTMP server startup.`)
-          console.error(`[WS-SERVER] ⚠️ Room Composite Egress transcription will not work.`)
-        } else {
-          console.error(`[WS-SERVER] ❌ Failed to start RTMP server:`, error)
-          if (SERVER_MODE === 'rtmp') {
-            // В режиме RTMP-only это критическая ошибка
-            console.error(`[WS-SERVER] ❌ RTMP server failed to start in RTMP-only mode. Exiting.`)
-            process.exit(1)
+      // Запускаем RTMP сервер в режиме 'both'
+      if (port === RTMP_PORT) {
+        console.error(`[WS-SERVER] ⚠️ Skipping RTMP server startup: HTTP/WebSocket server is already using port ${RTMP_PORT}`)
+        console.error(`[WS-SERVER] ⚠️ Room Composite Egress transcription will not work.`)
+        console.error(`[WS-SERVER] ⚠️ Solution: Set SERVER_MODE=rtmp for RTMP-only service, or use different ports.`)
+      } else {
+        try {
+          await startGlobalRTMPServer()
+          console.log(`[WS-SERVER] ✅ RTMP server started for Room Composite Egress on port ${RTMP_PORT}`)
+        } catch (error: any) {
+          // Если ошибка EADDRINUSE, порт уже занят
+          if (error?.code === 'EADDRINUSE') {
+            console.error(`[WS-SERVER] ⚠️ RTMP port ${RTMP_PORT} is already in use. Skipping RTMP server startup.`)
+            console.error(`[WS-SERVER] ⚠️ Room Composite Egress transcription will not work.`)
           } else {
+            console.error(`[WS-SERVER] ❌ Failed to start RTMP server:`, error)
             console.warn(`[WS-SERVER] Room Composite Egress transcription will not work without RTMP server`)
           }
         }
       }
     }
-  }
-  
-  // Graceful shutdown
-  process.on('SIGTERM', async () => {
-    console.log('[WS-SERVER] SIGTERM received, shutting down gracefully...')
-    await flushAllPending()
-    stopFlushTimer()
-    server.close(() => {
-      console.log('[WS-SERVER] HTTP server closed')
-      process.exit(0)
+    
+    // Graceful shutdown
+    process.on('SIGTERM', async () => {
+      console.log('[WS-SERVER] SIGTERM received, shutting down gracefully...')
+      await flushAllPending()
+      stopFlushTimer()
+      server.close(() => {
+        console.log('[WS-SERVER] HTTP server closed')
+        process.exit(0)
+      })
     })
   })
-})
+}
 
 // Graceful shutdown: записываем все pending транскрипты перед завершением
 const gracefulShutdown = async (signal: string) => {

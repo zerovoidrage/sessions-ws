@@ -1,0 +1,182 @@
+/**
+ * Легкий хук для получения realtime-транскриптов через WebSocket.
+ * 
+ * Оптимизирован для минимальной задержки и производительности:
+ * - Минимальный стейт (только messages + currentUtterance)
+ * - Прямая подписка на WebSocket без промежуточных слоев
+ * - Метрики latency на клиенте
+ */
+
+'use client'
+
+import { useState, useEffect, useRef } from 'react'
+
+export type TranscriptMessage = {
+  id: string
+  text: string
+  speaker?: string
+  ts: number
+}
+
+export type UseRealtimeTranscriptResult = {
+  messages: TranscriptMessage[]
+  currentUtterance: TranscriptMessage | null
+}
+
+/**
+ * Получает WebSocket URL для транскрипции
+ */
+function getTranscriptionWebSocketUrl(sessionSlug: string, transcriptionToken: string): string {
+  // Определяем хост WebSocket сервера
+  const wsServerUrl = process.env.NEXT_PUBLIC_WS_SERVER_URL || ''
+  let cleanHost = wsServerUrl.replace(/^https?:\/\//, '').replace(/\/$/, '')
+  
+  // Если не указан явно, используем текущий хост
+  if (!cleanHost) {
+    if (typeof window !== 'undefined') {
+      cleanHost = window.location.hostname
+    } else {
+      cleanHost = 'localhost'
+    }
+  }
+  
+  // Определяем протокол и порт
+  const isRemoteHost = cleanHost !== 'localhost' && 
+    !cleanHost.startsWith('127.0.0.1') && 
+    !cleanHost.startsWith('192.168.')
+  
+  const wsProtocol = isRemoteHost
+    ? 'wss'
+    : (typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'wss' : 'ws')
+  
+  const wsPort = process.env.NEXT_PUBLIC_WS_PORT
+  const baseUrl = !isRemoteHost
+    ? `${wsProtocol}://${cleanHost}:${wsPort || '3001'}`
+    : `${wsProtocol}://${cleanHost}`
+  
+  return `${baseUrl}/api/realtime/transcribe?token=${encodeURIComponent(transcriptionToken)}`
+}
+
+/**
+ * Легкий хук для получения realtime-транскриптов
+ */
+export function useRealtimeTranscript(
+  sessionSlug: string,
+  transcriptionToken?: string
+): UseRealtimeTranscriptResult {
+  const [messages, setMessages] = useState<TranscriptMessage[]>([])
+  const [currentUtterance, setCurrentUtterance] = useState<TranscriptMessage | null>(null)
+  const wsRef = useRef<WebSocket | null>(null)
+  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const reconnectAttemptsRef = useRef(0)
+  const maxReconnectAttempts = 5
+
+  useEffect(() => {
+    if (!transcriptionToken) {
+      return
+    }
+
+    let isMounted = true
+
+    const connect = () => {
+      if (!isMounted || wsRef.current?.readyState === WebSocket.OPEN) {
+        return
+      }
+
+      try {
+        const wsUrl = getTranscriptionWebSocketUrl(sessionSlug, transcriptionToken)
+        const ws = new WebSocket(wsUrl)
+        wsRef.current = ws
+
+        ws.onopen = () => {
+          console.log('[useRealtimeTranscript] WebSocket connected', { sessionSlug })
+          reconnectAttemptsRef.current = 0
+        }
+
+        ws.onmessage = (event: MessageEvent) => {
+          if (!isMounted) return
+
+          let data: any
+          try {
+            data = JSON.parse(event.data)
+          } catch {
+            return
+          }
+
+          // Обрабатываем только транскрипты
+          if (data.type !== 'transcript' || data.sessionSlug !== sessionSlug) {
+            return
+          }
+
+          const msg: TranscriptMessage = {
+            id: data.utteranceId ?? `${data.ts}-${Math.random().toString(16).slice(2)}`,
+            text: data.text,
+            speaker: data.speaker,
+            ts: data.ts ?? Date.now(),
+          }
+
+          // Замер клиентской latency
+          if (typeof data.ts === 'number') {
+            const clientLatency = Date.now() - data.ts
+            // Логируем только периодически, чтобы не спамить
+            if (Math.random() < 0.1) {
+              console.log('[CLIENT_METRICS] transcript_latency_ms', clientLatency)
+            }
+          }
+
+          if (data.isFinal) {
+            // Финальный транскрипт - добавляем в messages
+            setMessages((prev) => [...prev, msg])
+            setCurrentUtterance((prev) =>
+              prev && prev.id === msg.id ? null : prev
+            )
+          } else {
+            // Interim транскрипт - обновляем currentUtterance
+            setCurrentUtterance(msg)
+          }
+        }
+
+        ws.onerror = (error) => {
+          console.error('[useRealtimeTranscript] WebSocket error', { sessionSlug, error })
+        }
+
+        ws.onclose = () => {
+          if (!isMounted) return
+
+          console.log('[useRealtimeTranscript] WebSocket closed', { sessionSlug })
+          wsRef.current = null
+
+          // Автоматическое переподключение
+          if (reconnectAttemptsRef.current < maxReconnectAttempts) {
+            reconnectAttemptsRef.current++
+            const delay = Math.min(1000 * reconnectAttemptsRef.current, 5000)
+            
+            reconnectTimeoutRef.current = setTimeout(() => {
+              if (isMounted) {
+                connect()
+              }
+            }, delay)
+          }
+        }
+      } catch (error) {
+        console.error('[useRealtimeTranscript] Failed to connect WebSocket', { sessionSlug, error })
+      }
+    }
+
+    connect()
+
+    return () => {
+      isMounted = false
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current)
+      }
+      if (wsRef.current) {
+        wsRef.current.close()
+        wsRef.current = null
+      }
+    }
+  }, [sessionSlug, transcriptionToken])
+
+  return { messages, currentUtterance }
+}
+

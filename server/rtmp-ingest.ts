@@ -19,6 +19,17 @@ import { createGladiaBridge, type TranscriptEvent } from './gladia-bridge.js'
 import { broadcastToSessionClients } from './client-connection.js'
 import { appendTranscriptChunk } from './append-transcript-chunk.js'
 import { getActiveSpeaker } from './active-speaker-tracker.js'
+import { recordLatency } from './realtime-metrics.js'
+
+/**
+ * Режим broadcast транскриптов:
+ * - 'direct' (по умолчанию): прямой in-memory WS broadcast (минимальная задержка)
+ * - 'http': через HTTP POST на WS сервер (fallback/интеграционный режим)
+ */
+const REALTIME_BROADCAST_MODE =
+  process.env.REALTIME_BROADCAST_MODE?.toLowerCase() === 'http'
+    ? 'http'
+    : 'direct'
 
 export interface RTMPIngestConfig {
   rtmpPort?: number
@@ -478,24 +489,11 @@ class RTMPIngestImpl extends EventEmitter implements RTMPIngest {
     const wsBaseUrl = process.env.WS_BASE_URL || process.env.WS_SERVER_URL
     
     if (!wsBaseUrl) {
-      // Fallback: in-memory broadcast (если оба сервиса в одном процессе)
-      console.log('[RTMPIngest] WS_BASE_URL not set, using in-memory broadcast', {
+      console.error('[RTMPIngest] ❌ WS_BASE_URL is not set in HTTP broadcast mode', {
         sessionSlug,
         sessionId: this.config.sessionId,
       })
-      
-      const payload: any = {
-        type: 'transcript',
-        sessionSlug: broadcastBody.sessionSlug,
-        utteranceId: broadcastBody.utteranceId,
-        text: broadcastBody.text,
-        isFinal: broadcastBody.isFinal,
-        speaker: broadcastBody.speaker,
-        speakerId: broadcastBody.speakerId,
-        ts: broadcastBody.ts,
-      }
-      
-      broadcastToSessionClients(sessionSlug, payload)
+      // fail-soft: просто не шлём, но не падаем
       return
     }
 
@@ -645,7 +643,8 @@ class RTMPIngestImpl extends EventEmitter implements RTMPIngest {
       endedAt: event.endedAt?.toISOString(),
     })
 
-    // Формируем payload для broadcast endpoint
+    // Формируем payload для broadcast
+    const now = Date.now()
     const broadcastBody = {
       sessionSlug: this.config.sessionSlug,
       utteranceId: event.utteranceId,
@@ -653,48 +652,76 @@ class RTMPIngestImpl extends EventEmitter implements RTMPIngest {
       isFinal: event.isFinal,
       speaker: speakerIdentity,
       speakerId: speakerIdentity,
-      ts: Date.now(),
+      ts: now,
     }
 
-    // Отправляем транскрипт в WebSocket сервер через HTTP broadcast endpoint
-    const sendStartAt = Date.now()
-    this.sendTranscriptToWebSocketServer(this.config.sessionSlug, broadcastBody)
-      .then(() => {
-        const sendCompleteAt = Date.now()
-        const httpLatency = sendCompleteAt - sendStartAt
-        const totalLatencyFromGladia = sendCompleteAt - transcriptReceivedAt
-        const totalLatencyFromStart = event.startedAt 
-          ? sendCompleteAt - event.startedAt.getTime()
-          : null
-        
-        // Детальные метрики задержек для анализа производительности
-        // Логируем для всех финальных транскриптов и 10% interim
-        if (event.isFinal || Math.random() < 0.1) {
-          console.log('[RTMPIngest] ⏱️ Transcript delivery metrics', {
-            sessionSlug: this.config.sessionSlug,
-            isFinal: event.isFinal,
-            utteranceId: event.utteranceId,
-            textPreview: event.text.slice(0, 50),
-            // Задержки по этапам
-            httpPostLatencyMs: httpLatency, // RTMP сервис → WebSocket сервис (HTTP POST)
-            gladiaToRtmpLatencyMs: totalLatencyFromGladia, // Gladia → RTMP сервис (обработка)
-            totalLatencyFromSpeechMs: totalLatencyFromStart, // От начала речи до доставки (если доступно)
-            // Timestamps для анализа
-            transcriptReceivedAt: new Date(transcriptReceivedAt).toISOString(),
-            httpPostStartAt: new Date(sendStartAt).toISOString(),
-            httpPostCompleteAt: new Date(sendCompleteAt).toISOString(),
-          })
-        }
-      })
-      .catch((error) => {
-        console.error('[RTMPIngest] Failed to post transcript to WS broadcast (in catch)', {
-          sessionId: this.config.sessionId,
-          sessionSlug: this.config.sessionSlug,
-          error,
-          textPreview: event.text.slice(0, 80),
-          timestamp: Date.now(),
+    // Метрики: задержка обработки в Gladia
+    if (event.endedAt) {
+      const sttLatency = now - event.endedAt.getTime()
+      recordLatency('gladia.stt_latency_ms', sttLatency)
+    }
+
+    // Основной путь: прямой WS broadcast (direct mode) или HTTP (fallback)
+    if (REALTIME_BROADCAST_MODE === 'direct') {
+      // Основной боевой путь: прямой WS broadcast без HTTP-хопа
+      const payload: any = {
+        type: 'transcript',
+        sessionSlug: broadcastBody.sessionSlug,
+        utteranceId: broadcastBody.utteranceId,
+        text: broadcastBody.text,
+        isFinal: broadcastBody.isFinal,
+        speaker: broadcastBody.speaker,
+        speakerId: broadcastBody.speakerId,
+        ts: broadcastBody.ts,
+      }
+
+      const broadcastStart = Date.now()
+      broadcastToSessionClients(this.config.sessionSlug, payload)
+      const broadcastEnd = Date.now()
+      
+      // Метрики: время broadcast loop
+      recordLatency('ws.broadcast_loop_ms', broadcastEnd - broadcastStart)
+      
+      // Метрики: общая задержка обработки в ingest
+      const ingestLatency = broadcastEnd - broadcastBody.ts
+      recordLatency('ingest.broadcast_latency_ms', ingestLatency)
+    } else {
+      // Fallback / интеграционный режим через HTTP
+      const sendStartAt = Date.now()
+      this.sendTranscriptToWebSocketServer(this.config.sessionSlug, broadcastBody)
+        .then(() => {
+          const sendCompleteAt = Date.now()
+          const httpLatency = sendCompleteAt - sendStartAt
+          
+          // Метрики: HTTP POST latency
+          recordLatency('http.post_latency_ms', httpLatency)
+          
+          // Метрики: общая задержка обработки в ingest
+          const ingestLatency = sendCompleteAt - broadcastBody.ts
+          recordLatency('ingest.broadcast_latency_ms', ingestLatency)
+          
+          // Детальные метрики задержек для анализа производительности
+          // Логируем для всех финальных транскриптов и 10% interim
+          if (event.isFinal || Math.random() < 0.1) {
+            console.log('[RTMPIngest] ⏱️ Transcript delivery metrics (HTTP mode)', {
+              sessionSlug: this.config.sessionSlug,
+              isFinal: event.isFinal,
+              utteranceId: event.utteranceId,
+              textPreview: event.text.slice(0, 50),
+              httpPostLatencyMs: httpLatency,
+            })
+          }
         })
-      })
+        .catch((error) => {
+          console.error('[RTMPIngest] Failed to post transcript to WS broadcast (in catch)', {
+            sessionId: this.config.sessionId,
+            sessionSlug: this.config.sessionSlug,
+            error,
+            textPreview: event.text.slice(0, 80),
+            timestamp: Date.now(),
+          })
+        })
+    }
 
     // Сохраняем финальные транскрипты в БД
     if (event.isFinal) {

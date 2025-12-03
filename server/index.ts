@@ -2,6 +2,7 @@ import http from 'http'
 import { WebSocketServer } from 'ws'
 import url from 'url'
 import { getMetrics } from './metrics.js'
+import { getLatencySnapshot } from './realtime-metrics.js'
 import { getQueueMetrics, flushAllPending, stopFlushTimer } from './transcript-batch-queue.js'
 import { startGlobalRTMPServer } from './rtmp-server.js'
 import { handleTranscripts } from './transcripts.js'
@@ -77,10 +78,12 @@ const server = http.createServer(async (req, res) => {
     try {
       const metrics = getMetrics()
       const queueMetrics = getQueueMetrics()
+      const latencyMetrics = getLatencySnapshot()
       res.statusCode = 200
       res.end(JSON.stringify({
         ...metrics,
         queue: queueMetrics,
+        latency: latencyMetrics,
       }, null, 2))
     } catch (error) {
       res.statusCode = 500

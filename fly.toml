@@ -1,5 +1,5 @@
 app = "sessions-ws-server"  # TODO: Замени на имя своего приложения после fly launch
-primary_region = "iad"  # TODO: Замени на выбранный регион (iad, fra, ams, etc.)
+primary_region = "fra"
 
 [build]
   dockerfile = "Dockerfile"

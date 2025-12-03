@@ -82,7 +82,7 @@ export async function startRoomCompositeTranscription(
   // Внешний порт для Egress URL (через TCP прокси Railway)
   // Если не указан, используем RTMP_EXTERNAL_PORT или RTMP_PORT из переменных окружения
   const externalPort = options.rtmpPort || 
-    parseInt(process.env.RTMP_EXTERNAL_PORT || process.env.RTMP_PORT || '1936', 10)
+    parseInt(process.env.RTMP_EXTERNAL_PORT || process.env.RTMP_PORT || '1937', 10)
   
   const { sessionId, sessionSlug, rtmpHost = defaultRtmpHost } = options
 

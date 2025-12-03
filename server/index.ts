@@ -7,7 +7,7 @@ import { startGlobalRTMPServer } from './rtmp-server.js'
 
 // Используем PORT из окружения (Railway автоматически устанавливает его)
 // Fallback на 3001 только для локальной разработки
-const RTMP_PORT = parseInt(process.env.RTMP_PORT || '1936', 10)
+const RTMP_PORT = parseInt(process.env.RTMP_PORT || '1937', 10)
 const envPort = Number(process.env.PORT)
 const port = Number.isFinite(envPort) ? Number(envPort) : 3001
 

@@ -172,7 +172,7 @@ export function getGlobalRTMPServer(): RTMPServer {
   if (!globalRTMPServer) {
     // Внутренний порт - 1936 по умолчанию (где слушает RTMP сервер внутри контейнера)
     // Внешний порт (через TCP прокси) указывается отдельно в RTMP_EXTERNAL_PORT
-    const rtmpInternalPort = parseInt(process.env.RTMP_INTERNAL_PORT || process.env.RTMP_PORT || '1936', 10)
+    const rtmpInternalPort = parseInt(process.env.RTMP_INTERNAL_PORT || process.env.RTMP_PORT || '1937', 10)
     globalRTMPServer = new RTMPServer(rtmpInternalPort)
   }
   return globalRTMPServer

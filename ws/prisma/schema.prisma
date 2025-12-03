@@ -1,0 +1,73 @@
+// Prisma schema для WebSocket сервера
+// Минимальная схема только для транскрипции
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model VideoSession {
+  id              String        @id @default(cuid())
+  slug            String        @unique
+  title           String?
+  createdByUserId String?
+  status          SessionStatus @default(ACTIVE)
+  createdAt       DateTime      @default(now())
+  endedAt         DateTime?
+  spaceId         String
+
+  participants       Participant[]
+  transcripts        TranscriptSegment[]
+
+  @@index([slug])
+}
+
+model Participant {
+  id             String       @id @default(cuid())
+  videoSessionId String
+  videoSession   VideoSession @relation(fields: [videoSessionId], references: [id], onDelete: Cascade)
+  userId         String?
+  identity       String
+  name           String?
+  role           ParticipantRole @default(GUEST)
+  joinedAt       DateTime     @default(now())
+  leftAt         DateTime?
+
+  transcripts        TranscriptSegment[]
+
+  @@unique([videoSessionId, identity])
+  @@index([videoSessionId])
+}
+
+model TranscriptSegment {
+  id             String       @id @default(cuid())
+  videoSessionId String
+  videoSession   VideoSession @relation(fields: [videoSessionId], references: [id], onDelete: Cascade)
+  participantId  String?
+  participant    Participant? @relation(fields: [participantId], references: [id], onDelete: SetNull)
+  utteranceId    String       // Gladia data.id
+  text           String
+  language       String?
+  isFinal        Boolean      @default(false)
+  startedAt      DateTime
+  endedAt        DateTime?
+  createdAt      DateTime     @default(now())
+
+  @@unique([videoSessionId, utteranceId])
+  @@index([videoSessionId])
+}
+
+enum SessionStatus {
+  ACTIVE
+  ENDED
+}
+
+enum ParticipantRole {
+  HOST
+  GUEST
+}
+

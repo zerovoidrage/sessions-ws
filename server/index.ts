@@ -14,6 +14,14 @@ const envPort = Number(process.env.PORT) || 3001
 // Приоритет: WS_PORT > PORT > 3001
 const port = WS_PORT || envPort
 
+// Логируем конфигурацию портов для отладки
+console.log(`[WS-SERVER] Port configuration:`, {
+  RTMP_PORT,
+  WS_PORT: WS_PORT || '(not set)',
+  envPORT: envPort,
+  finalPORT: port,
+})
+
 // Создаем HTTP сервер для WebSocket upgrade
 const server = http.createServer()
 
@@ -315,12 +323,25 @@ server.listen(port, async () => {
   
   // Запускаем глобальный RTMP сервер для Room Composite Egress
   // RTMP сервер слушает на отдельном порту (1936 по умолчанию), не на HTTP/WebSocket порту
-  try {
-    await startGlobalRTMPServer()
-    console.log(`[WS-SERVER] ✅ RTMP server started for Room Composite Egress`)
-  } catch (error: any) {
-    console.error(`[WS-SERVER] ❌ Failed to start RTMP server:`, error)
-    console.warn(`[WS-SERVER] Room Composite Egress transcription will not work without RTMP server`)
+  // Проверяем, что HTTP сервер не слушает на том же порту, что RTMP
+  if (port === RTMP_PORT) {
+    console.error(`[WS-SERVER] ⚠️ Skipping RTMP server startup: HTTP/WebSocket server is already using port ${RTMP_PORT}`)
+    console.error(`[WS-SERVER] ⚠️ Room Composite Egress transcription will not work.`)
+    console.error(`[WS-SERVER] ⚠️ Solution: Add WS_PORT=8000 to Railway Variables to force HTTP/WebSocket on port 8000.`)
+  } else {
+    try {
+      await startGlobalRTMPServer()
+      console.log(`[WS-SERVER] ✅ RTMP server started for Room Composite Egress`)
+    } catch (error: any) {
+      // Если ошибка EADDRINUSE, порт уже занят
+      if (error?.code === 'EADDRINUSE') {
+        console.error(`[WS-SERVER] ⚠️ RTMP port ${RTMP_PORT} is already in use. Skipping RTMP server startup.`)
+        console.error(`[WS-SERVER] ⚠️ Room Composite Egress transcription will not work.`)
+      } else {
+        console.error(`[WS-SERVER] ❌ Failed to start RTMP server:`, error)
+        console.warn(`[WS-SERVER] Room Composite Egress transcription will not work without RTMP server`)
+      }
+    }
   }
   
   // Graceful shutdown

@@ -58,9 +58,19 @@ export async function startServerTranscription(
   try {
     const { startRoomCompositeTranscription } = await import('./livekit-room-composite-transcriber.js')
     
-    const rtmpHost = process.env.RTMP_HOST || 'localhost' // Для production нужен публичный IP/домен
-    // Внешний порт для Egress URL (через TCP прокси)
+    // ВАЖНО: Для Railway TCP Proxy используйте проксируемый домен (например, nozomi.proxy.rlwy.net)
+    // Это домен, который Railway показывает в разделе Networking → TCP Proxy
+    const rtmpHost = process.env.RTMP_HOST || 'localhost' // Для production нужен публичный проксируемый домен
+    // Внешний порт для Egress URL (через TCP прокси Railway)
+    // Это порт, который Railway показывает в TCP Proxy (например, 58957)
     const rtmpExternalPort = parseInt(process.env.RTMP_EXTERNAL_PORT || process.env.RTMP_PORT || '1937', 10)
+    
+    console.log(`[ServerTranscriber] RTMP host configuration:`, {
+      rtmpHost,
+      rtmpExternalPort,
+      envRTMP_HOST: process.env.RTMP_HOST,
+      envRTMP_EXTERNAL_PORT: process.env.RTMP_EXTERNAL_PORT,
+    })
     
     const transcriber = await startRoomCompositeTranscription({
       sessionId,

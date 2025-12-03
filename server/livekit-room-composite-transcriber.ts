@@ -35,19 +35,22 @@ export async function startRoomCompositeTranscription(
   options: StartRoomCompositeTranscriptionOptions
 ): Promise<RoomCompositeTranscriber> {
   // Определяем RTMP хост автоматически для разных платформ
+  // ВАЖНО: Для Railway TCP Proxy нужно использовать проксируемый домен (например, nozomi.proxy.rlwy.net)
+  // НЕ используйте основной домен сервиса (например, ws-production-dbcc.up.railway.app)
   const defaultRtmpHost = 
-    process.env.RAILWAY_PUBLIC_DOMAIN || // Railway
+    process.env.RTMP_HOST || // Явно указанный RTMP хост (предпочтительно для Railway TCP Proxy)
+    process.env.RAILWAY_PUBLIC_DOMAIN || // Railway (fallback, но лучше использовать RTMP_HOST из TCP Proxy)
     (process.env.FLY_APP_NAME ? `${process.env.FLY_APP_NAME}.fly.dev` : undefined) || // Fly.io
-    process.env.RTMP_HOST || 
     'localhost'
   
   // Внешний порт для Egress URL (через TCP прокси Railway)
-  // Если не указан, используем RTMP_EXTERNAL_PORT или RTMP_PORT из переменных окружения
+  // ВАЖНО: Для Railway TCP Proxy это должен быть внешний порт из прокси (например, 58957)
+  // НЕ внутренний порт (1937)
   const externalPort = options.rtmpPort || 
     parseInt(process.env.RTMP_EXTERNAL_PORT || process.env.RTMP_PORT || '1937', 10)
   
   // Внутренний порт для RTMP сервера (где FFmpeg подключается локально)
-  // Используем RTMP_INTERNAL_PORT или RTMP_PORT из переменных окружения
+  // Это порт, на котором RTMP сервер слушает внутри контейнера (обычно 1937)
   const internalPort = parseInt(
     process.env.RTMP_INTERNAL_PORT || process.env.RTMP_PORT || '1937',
     10
@@ -56,6 +59,15 @@ export async function startRoomCompositeTranscription(
   const { sessionId, sessionSlug, rtmpHost = defaultRtmpHost } = options
 
   console.log(`[RoomCompositeTranscriber] Starting transcription for session ${sessionId} (room: ${sessionSlug})`)
+  console.log(`[RoomCompositeTranscriber] RTMP configuration:`, {
+    rtmpHost,
+    externalPort,
+    internalPort,
+    envRTMP_HOST: process.env.RTMP_HOST,
+    envRTMP_EXTERNAL_PORT: process.env.RTMP_EXTERNAL_PORT,
+    envRTMP_INTERNAL_PORT: process.env.RTMP_INTERNAL_PORT,
+    envRTMP_PORT: process.env.RTMP_PORT,
+  })
 
   const livekitConfig = getLiveKitConfig()
   const egressClient = new EgressClient(
@@ -65,8 +77,8 @@ export async function startRoomCompositeTranscription(
   )
 
   // RTMP URL для приема потока от Egress
-  // ВАЖНО: Для production rtmpHost должен быть публичным IP/доменом
-  // Используем внешний порт (через TCP прокси Railway)
+  // ВАЖНО: Для production rtmpHost должен быть публичным проксируемым доменом (например, nozomi.proxy.rlwy.net)
+  // Используем внешний порт (через TCP прокси Railway, например, 58957)
   const rtmpUrl = `rtmp://${rtmpHost}:${externalPort}/live/${sessionSlug}`
 
   try {

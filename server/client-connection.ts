@@ -185,12 +185,25 @@ export function handleClientConnection({ ws, req }: ClientConnectionOptions): vo
   const sendInitialMessage = () => {
     if (ws.readyState === WebSocket.OPEN) {
       try {
-        ws.send(JSON.stringify({
+        const message = JSON.stringify({
           type: 'connected',
           sessionSlug,
           message: 'WebSocket connection established',
-        }))
-        console.log('[WS-SERVER] ✅ Initial message sent to client')
+        })
+        ws.send(message)
+        console.log('[WS-SERVER] ✅ Initial message sent to client', {
+          messageLength: message.length,
+          readyState: ws.readyState,
+        })
+        
+        // Отправляем ping сразу после initial message, чтобы Railway proxy не закрыл соединение
+        // Railway может закрывать соединения, которые не обмениваются данными
+        try {
+          ws.ping()
+          console.log('[WS-SERVER] ✅ Ping sent immediately after initial message')
+        } catch (pingError) {
+          console.error('[WS-SERVER] ❌ Failed to send ping after initial message:', pingError)
+        }
       } catch (error) {
         console.error('[WS-SERVER] ❌ Failed to send initial message:', error)
       }
@@ -213,10 +226,11 @@ export function handleClientConnection({ ws, req }: ClientConnectionOptions): vo
     setTimeout(() => {
       clearInterval(checkInterval)
       sendInitialMessage()
-    }, 100) // Уменьшена задержка до 100ms
+    }, 50) // Уменьшена задержка до 50ms для более быстрой отправки
   }
 
   // Настраиваем ping/pong для поддержания соединения живым
+  // Более частый ping в начале для Railway proxy
   const pingInterval = setInterval(() => {
     if (ws.readyState === WebSocket.OPEN) {
       try {
@@ -228,7 +242,7 @@ export function handleClientConnection({ ws, req }: ClientConnectionOptions): vo
     } else {
       clearInterval(pingInterval)
     }
-  }, 30000) // Ping каждые 30 секунд
+  }, 25000) // Ping каждые 25 секунд (стандарт RFC рекомендует 20-30 секунд)
 
   // Увеличиваем счетчик активных соединений
   incrementConnections()

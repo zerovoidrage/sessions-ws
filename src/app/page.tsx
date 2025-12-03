@@ -127,7 +127,7 @@ export default function HomePage() {
           />
           <p>Video meetings today are broken.</p>
           
-          <p>They show faces, they record audio — but they don't understand anything.</p>
+          <p>They show faces, they record audio — but they don&apos;t understand anything.</p>
           
           <p>Teams leave with scattered notes, forgotten decisions, and lost context.</p>
           

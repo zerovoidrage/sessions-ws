@@ -521,6 +521,11 @@ if (SERVER_MODE === 'rtmp') {
   try {
     await startGlobalRTMPServer()
     console.log(`[WS-SERVER] ✅ RTMP server started on port ${RTMP_PORT}`)
+    
+    // Инициализируем автоматическое создание RTMP Ingest при получении потоков
+    const { initializeAutoIngest } = await import('./rtmp-auto-ingest.js')
+    await initializeAutoIngest()
+    console.log(`[WS-SERVER] ✅ Auto-ingest enabled for RTMP streams`)
   } catch (error: any) {
     console.error(`[WS-SERVER] ❌ Failed to start RTMP server:`, error)
     if (error?.code === 'EADDRINUSE') {

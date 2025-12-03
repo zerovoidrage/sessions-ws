@@ -26,10 +26,20 @@ class RTMPServer extends EventEmitter {
   private streamHandlers = new Map<string, RTMPStreamHandler>() // streamPath -> handler
   private isRunning = false
   private rtmpPort: number
+  private autoIngestCallback: ((streamPath: string) => Promise<void>) | null = null
 
   constructor(rtmpPort: number = 1936) {
     super()
     this.rtmpPort = rtmpPort
+  }
+
+  /**
+   * Включает автоматическое создание RTMP Ingest при получении потока.
+   * Используется в режиме разделенных сервисов (SERVER_MODE=rtmp).
+   */
+  enableAutoIngest(callback: (streamPath: string) => Promise<void>): void {
+    this.autoIngestCallback = callback
+    console.log('[RTMPServer] Auto-ingest enabled')
   }
 
   /**
@@ -66,11 +76,26 @@ class RTMPServer extends EventEmitter {
       console.log(`[RTMPServer] RTMP client connected: ${id}`)
     })
 
-    this.nms.on('prePublish', (id: string, streamPath: string, args: any) => {
-      console.log(`[RTMPServer] RTMP stream publishing: ${streamPath}`)
-      const handler = this.streamHandlers.get(streamPath)
+    this.nms.on('prePublish', async (id: string, streamPath: string, args: any) => {
+      console.log(`[RTMPServer] RTMP stream publishing: ${streamPath}`, { id, args })
+      // Иногда streamPath может быть в args
+      const actualStreamPath = streamPath || args?.path || args?.streamPath
+      if (!actualStreamPath) {
+        console.warn(`[RTMPServer] Could not determine streamPath from prePublish event`, { id, streamPath, args })
+        return
+      }
+      
+      const handler = this.streamHandlers.get(actualStreamPath)
       if (handler) {
-        handler.onStreamStart(streamPath)
+        handler.onStreamStart(actualStreamPath)
+      } else if (this.autoIngestCallback) {
+        // Если обработчик не зарегистрирован, но включен auto-ingest, создаем его автоматически
+        console.log(`[RTMPServer] No handler registered for ${actualStreamPath}, trying auto-ingest...`)
+        try {
+          await this.autoIngestCallback(actualStreamPath)
+        } catch (error) {
+          console.error(`[RTMPServer] Failed to create auto-ingest for ${actualStreamPath}:`, error)
+        }
       }
     })
 
@@ -79,10 +104,15 @@ class RTMPServer extends EventEmitter {
     })
 
     this.nms.on('donePublish', (id: string, streamPath: string, args: any) => {
-      console.log(`[RTMPServer] RTMP stream ended: ${streamPath}`)
-      const handler = this.streamHandlers.get(streamPath)
+      console.log(`[RTMPServer] RTMP stream ended: ${streamPath}`, { id, args })
+      const actualStreamPath = streamPath || args?.path || args?.streamPath
+      if (!actualStreamPath) {
+        console.warn(`[RTMPServer] Could not determine streamPath from donePublish event`, { id, streamPath, args })
+        return
+      }
+      const handler = this.streamHandlers.get(actualStreamPath)
       if (handler) {
-        handler.onStreamEnd(streamPath)
+        handler.onStreamEnd(actualStreamPath)
       }
     })
 

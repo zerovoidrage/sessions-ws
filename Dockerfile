@@ -29,10 +29,10 @@ RUN npx prisma generate
 # Копируем остальные файлы
 COPY . .
 
-# Открываем порты (PORT для Next.js, WS_PORT для WS/RTMP сервера, RTMP на 1937)
-# В моносервисе Next.js работает на PORT (3000), WS/RTMP сервер на WS_PORT (3001)
-EXPOSE ${PORT:-3000} ${WS_PORT:-3001} 1937
+# Открываем порты (PORT для HTTP/WebSocket, RTMP на 1937)
+# Это только WS/RTMP моносервис, Next.js работает отдельно
+EXPOSE ${PORT:-3000} 1937
 
-# Запускаем моносервис (Next.js + WS/RTMP сервер через concurrently)
-CMD ["npm", "run", "start:monolith"]
+# Запускаем WS/RTMP моносервис (без Next.js)
+CMD ["npm", "run", "start:ws"]
 

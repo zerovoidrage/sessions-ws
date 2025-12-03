@@ -7,7 +7,7 @@
     "dev:ws": "tsx server/index.ts",
     "build": "prisma generate && next build",
     "start": "next start",
-    "start:monolith": "concurrently -n \"next,ws\" -c \"blue,green\" \"next start\" \"tsx server/index.ts\"",
+    "start:ws": "tsx server/index.ts",
     "lint": "next lint",
     "test": "vitest",
     "test:ui": "vitest --ui",
@@ -66,8 +66,7 @@
     "tailwindcss": "^3.4.7",
     "tsx": "^4.7.0",
     "typescript": "^5.5.4",
-    "vitest": "^4.0.14",
-    "concurrently": "^9.1.0"
+    "vitest": "^4.0.14"
   }
 }
 

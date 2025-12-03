@@ -47,14 +47,12 @@ export async function upsertParticipantOnJoin(
     // Используем HTTP API вызов к WebSocket серверу
     // В моносервисе Next.js и WS сервер работают на одном порту (PORT), поэтому используем localhost или тот же URL
     try {
-      // Для моносервиса: Next.js на PORT (3000), WS сервер на WS_PORT (3001)
-      // Если WS_SERVER_URL не установлен, используем localhost с WS_PORT
-      const wsPort = process.env.WS_PORT || (process.env.PORT ? String(Number(process.env.PORT) + 1) : '3001')
-      const wsServerUrl = process.env.WS_SERVER_URL || `http://127.0.0.1:${wsPort}`
+      // WS/RTMP сервер работает отдельно от Next.js
+      // Если WS_SERVER_URL не установлен, используем переменную окружения или дефолтный URL
+      const wsServerUrl = process.env.WS_SERVER_URL || process.env.NEXT_PUBLIC_WS_SERVER_URL || 'http://localhost:3000'
       console.log(`[upsertParticipantOnJoin] Attempting to start server transcription for session ${input.sessionId} via ${wsServerUrl}/api/transcription/start`, {
         envWS_SERVER_URL: process.env.WS_SERVER_URL,
-        envWS_PORT: process.env.WS_PORT,
-        envPORT: process.env.PORT,
+        envNEXT_PUBLIC_WS_SERVER_URL: process.env.NEXT_PUBLIC_WS_SERVER_URL,
         finalUrl: wsServerUrl,
       })
       
@@ -75,8 +73,7 @@ export async function upsertParticipantOnJoin(
     } catch (error) {
       console.error(`[upsertParticipantOnJoin] ❌ Failed to start server transcription for session ${input.sessionId}:`, error)
       if (error instanceof Error) {
-        const wsPort = process.env.WS_PORT || (process.env.PORT ? String(Number(process.env.PORT) + 1) : '3001')
-        const wsServerUrl = process.env.WS_SERVER_URL || `http://127.0.0.1:${wsPort}`
+        const wsServerUrl = process.env.WS_SERVER_URL || process.env.NEXT_PUBLIC_WS_SERVER_URL || 'http://localhost:3000'
         console.error(`[upsertParticipantOnJoin] Error details:`, {
           message: error.message,
           stack: error.stack,
@@ -92,12 +89,10 @@ export async function upsertParticipantOnJoin(
     // ВАЖНО: Если сессия уже LIVE, но транскрипция не запущена, попробуем запустить её
     // Это может произойти, если сервер перезапустился или транскрипция упала
     try {
-      const wsPort = process.env.WS_PORT || (process.env.PORT ? String(Number(process.env.PORT) + 1) : '3001')
-      const wsServerUrl = process.env.WS_SERVER_URL || `http://127.0.0.1:${wsPort}`
+      const wsServerUrl = process.env.WS_SERVER_URL || process.env.NEXT_PUBLIC_WS_SERVER_URL || 'http://localhost:3000'
       console.log(`[upsertParticipantOnJoin] Session ${input.sessionId} is already LIVE, checking if transcription is active...`, {
         envWS_SERVER_URL: process.env.WS_SERVER_URL,
-        envWS_PORT: process.env.WS_PORT,
-        envPORT: process.env.PORT,
+        envNEXT_PUBLIC_WS_SERVER_URL: process.env.NEXT_PUBLIC_WS_SERVER_URL,
         finalUrl: wsServerUrl,
       })
       

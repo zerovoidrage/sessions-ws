@@ -29,6 +29,7 @@ export interface RTMPIngest extends EventEmitter {
   start(): Promise<void>
   stop(): Promise<void>
   isActive(): boolean
+  startFFmpegNow(): Promise<void> // Публичный метод для запуска FFmpeg, если поток уже активен
 }
 
 /**
@@ -573,6 +574,19 @@ class RTMPIngestImpl extends EventEmitter implements RTMPIngest {
     console.log(`[RTMPIngest] ✅ RTMP Ingest stopped for session ${this.config.sessionId}`, {
       sessionSlug: this.config.sessionSlug,
     })
+  }
+
+  async startFFmpegNow(): Promise<void> {
+    // Публичный метод для запуска FFmpeg, если поток уже активен
+    // Используется при автоматическом создании RTMPIngest, когда поток уже начался
+    if (!this.gladiaBridge) {
+      console.warn(`[RTMPIngest] Cannot start FFmpeg: Gladia bridge not initialized`, {
+        sessionId: this.config.sessionId,
+      })
+      return
+    }
+    
+    await this.startFFmpegDecoder()
   }
 
   isActive(): boolean {

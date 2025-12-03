@@ -75,11 +75,24 @@ export async function initializeAutoIngest(): Promise<void> {
     }
 
     try {
-      await createAutoIngest(sessionSlug)
+      const ingest = await createAutoIngest(sessionSlug)
+      
+      // Поскольку поток уже активен (prePublish уже произошел),
+      // запускаем FFmpeg сразу после создания RTMPIngest
+      try {
+        await ingest.startFFmpegNow()
+        console.log(`[RTMPAutoIngest] ✅ FFmpeg started for session slug: ${sessionSlug}`)
+      } catch (error) {
+        console.error(`[RTMPAutoIngest] Failed to start FFmpeg for session slug ${sessionSlug}:`, error)
+        // Не удаляем ingest - он все равно может быть полезен
+      }
       
       // Регистрируем обработчик для этого потока для корректной обработки onStreamEnd
       const handler: RTMPStreamHandler = {
-        onStreamStart: () => {},
+        onStreamStart: () => {
+          // Поток уже начался, FFmpeg уже запущен выше
+          console.log(`[RTMPAutoIngest] Stream already started, FFmpeg should be running: ${streamPath}`)
+        },
         onStreamData: () => {},
         onStreamEnd: async (path: string) => {
           console.log(`[RTMPAutoIngest] Stream ended: ${path}`)

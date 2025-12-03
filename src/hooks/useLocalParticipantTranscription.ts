@@ -23,6 +23,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Room, LocalParticipant, Track, ConnectionState } from 'livekit-client'
 import { connectTranscriptionWebSocket } from './utils/connectTranscriptionWebSocket'
 import type { TranscriptMessage } from '@/types/transcript'
+import type { ServerTranscriptionMessage } from '@/types/server-transcription-message'
 import { clientTranscriptionMetrics } from '@/modules/core/sessions/infra/transcription/transcription-metrics'
 import {
   isTranscriptionEnabledForSession,
@@ -723,72 +724,124 @@ export function useLocalParticipantTranscription({
         // чтобы получать транскрипты от сервера даже при серверной транскрипции
         // ВАЖНО: Определяем handleMessage в широкой области видимости, чтобы он был доступен в reconnectWebSocket
         const handleMessage = (event: MessageEvent) => {
-            try {
-              // Проверяем, что комната еще подключена
-              if (!room || room.state !== ConnectionState.Connected || !localParticipant) {
-                console.warn('[Transcription] Received message but room/participant not ready', {
-                  hasRoom: !!room,
-                  roomState: room?.state,
-                  hasLocalParticipant: !!localParticipant,
-                })
-                return
-              }
-
-              const data = JSON.parse(event.data)
-              
-              // Детальное логирование всех входящих сообщений
-              console.log('[Transcription] 📨 WebSocket message received', {
-                type: data.type,
-                hasText: !!data.text,
-                textLength: data.text?.length,
-                isFinal: data.is_final,
-                utteranceId: data.utterance_id || data.utteranceId,
-                rawData: data,
+          try {
+            // Проверяем, что комната еще подключена
+            if (!room || room.state !== ConnectionState.Connected || !localParticipant) {
+              console.warn('[Transcription] Received message but room/participant not ready', {
+                hasRoom: !!room,
+                roomState: room?.state,
+                hasLocalParticipant: !!localParticipant,
               })
-
-              if (data.type === 'transcription' && data.text?.trim() && isMountedRef.current) {
-                const isFinal = Boolean(data.is_final)
-                
-                console.log('[Transcription] ✅ Processing transcription message', {
-                  text: data.text.substring(0, 100),
-                  isFinal,
-                  utteranceId: data.utterance_id || data.utteranceId || null,
-                })
-                
-                // Обновляем метрики
-                if (localParticipant) {
-                  clientTranscriptionMetrics.incrementTranscripts(
-                    sessionSlug,
-                    localParticipant.identity,
-                    isFinal
-                  )
-                }
-                
-                sendTranscriptFromServer({
-                  text: data.text,
-                  isFinal,
-                  utteranceId: data.utterance_id || data.utteranceId || null,
-                })
-              } else if (data.type === 'error') {
-                console.error('[Transcription] Server error:', data.message || data)
-                // Записываем ошибку в метрики
-                if (localParticipant) {
-                  const errorMsg = data.message || 'Unknown server error'
-                  clientTranscriptionMetrics.recordError(sessionSlug, localParticipant.identity, errorMsg)
-                }
-              } else {
-                // Логируем сообщения неизвестного формата
-                console.warn('[Transcription] Unknown message format', {
-                  type: data.type,
-                  data: data,
-                })
-              }
-            } catch (error) {
-              console.error('[Transcription] Error parsing server message:', error, {
-                eventData: event.data,
-              })
+              return
             }
+
+            // Парсим сообщение и типизируем его
+            let payload: ServerTranscriptionMessage
+            try {
+              payload = JSON.parse(event.data) as ServerTranscriptionMessage
+            } catch (err) {
+              console.error('[Transcription] Failed to parse WebSocket message', {
+                eventData: event.data,
+                error: err,
+              })
+              return
+            }
+
+            // Детальное логирование всех входящих сообщений
+            console.log('[Transcription] 📨 WebSocket message received', payload)
+
+            // Обрабатываем сообщение по типу
+            handleWebSocketMessage(payload)
+          } catch (error) {
+            console.error('[Transcription] Error processing server message:', error, {
+              eventData: event.data,
+            })
           }
+        }
+
+        // Функция для обработки типизированных сообщений от сервера
+        const handleWebSocketMessage = (message: ServerTranscriptionMessage) => {
+          // 1️⃣ Initial handshake message
+          if (message.type === 'connected') {
+            console.log('[Transcription] WebSocket handshake confirmed', {
+              sessionSlug: message.sessionSlug,
+              userId: message.userId,
+              message: message.message,
+              ts: message.ts,
+            })
+            // Можно проставить флаг в стейте, если нужно
+            // setWsConnected(true) и т.п.
+            return
+          }
+
+          // 2️⃣ Ошибки сервера
+          if (message.type === 'error') {
+            const errorMsg = message.error || message.message || 'Unknown server error'
+            console.error('[Transcription] Server error', {
+              error: errorMsg,
+              code: message.code,
+            })
+            // Записываем ошибку в метрики
+            if (localParticipant) {
+              clientTranscriptionMetrics.recordError(sessionSlug, localParticipant.identity, errorMsg)
+            }
+            // При желании — показать в UI
+            return
+          }
+
+          // 3️⃣ Основной кейс: транскрипты
+          if (message.type === 'transcript' || message.type === 'transcription') {
+            const transcriptMessage = message as Extract<ServerTranscriptionMessage, { type: 'transcript' | 'transcription' }>
+            const { text, isFinal, is_final, utteranceId, utterance_id, speakerId, speaker_id } = transcriptMessage
+
+            // Проверяем, что есть валидный текст
+            if (!text || typeof text !== 'string' || !text.trim()) {
+              console.warn('[Transcription] Transcript message without valid text', transcriptMessage)
+              return
+            }
+
+            // Нормализуем значения (поддерживаем оба варианта имен полей для обратной совместимости)
+            const normalizedIsFinal = Boolean(isFinal ?? is_final ?? false)
+            const normalizedUtteranceId = utteranceId || utterance_id || null
+            const normalizedSpeakerId = speakerId || speaker_id || null
+
+            if (!isMountedRef.current) {
+              console.warn('[Transcription] Component unmounted, skipping transcript processing')
+              return
+            }
+
+            console.log('[Transcription] ✅ Processing transcription message', {
+              text: text.substring(0, 100),
+              isFinal: normalizedIsFinal,
+              utteranceId: normalizedUtteranceId,
+              speakerId: normalizedSpeakerId,
+            })
+
+            // Обновляем метрики
+            if (localParticipant) {
+              clientTranscriptionMetrics.incrementTranscripts(
+                sessionSlug,
+                localParticipant.identity,
+                normalizedIsFinal
+              )
+            }
+
+            // Используем существующую логику обработки транскрипта
+            sendTranscriptFromServer({
+              text: text.trim(),
+              isFinal: normalizedIsFinal,
+              utteranceId: normalizedUtteranceId,
+            })
+
+            return
+          }
+
+          // 4️⃣ Fallback для неизвестных форматов
+          console.warn('[Transcription] Unknown message format', {
+            type: message.type,
+            message: message,
+          })
+        }
 
         // Подключаемся к WebSocket для получения транскриптов от сервера
         // ВАЖНО: Даже при серверной транскрипции клиент должен подключаться к WebSocket

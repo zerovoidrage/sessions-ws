@@ -126,7 +126,12 @@ export function useRealtimeTranscript(
 
           if (data.isFinal) {
             // Финальный транскрипт - добавляем в messages
-            setMessages((prev) => [...prev, msg])
+            // Ограничиваем до 6 сообщений, удаляя самые старые
+            setMessages((prev) => {
+              const updated = [...prev, msg]
+              // Оставляем только последние 6 сообщений
+              return updated.slice(-6)
+            })
             setCurrentUtterance((prev) =>
               prev && prev.id === msg.id ? null : prev
             )

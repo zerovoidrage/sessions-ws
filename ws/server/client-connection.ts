@@ -261,7 +261,7 @@ export function handleClientConnection({ ws, req }: ClientConnectionOptions): vo
       if (!validation.valid) {
         console.warn('[WS-SERVER] Invalid audio chunk rejected', {
           reason: validation.reason,
-          size: data.byteLength || data.length,
+          size: data instanceof ArrayBuffer ? data.byteLength : (data as Buffer).length,
           clientIdentity: participantIdentity,
         })
         recordError(`Invalid audio chunk: ${validation.reason}`)

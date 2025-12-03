@@ -1,4 +1,5 @@
 import { db } from '@/lib/db'
+import { Prisma } from '@prisma/client'
 import type { SessionAnalysis, AnalysisStatus } from '../../domain/session.types'
 
 export interface CreateSessionAnalysisInput {
@@ -60,14 +61,29 @@ export async function updateSessionAnalysis(
   sessionId: string,
   input: UpdateSessionAnalysisInput
 ): Promise<SessionAnalysis> {
+  const updateData: {
+    status?: AnalysisStatus
+    summary?: string | null
+    tasksJson?: Prisma.InputJsonValue | Prisma.NullableJsonNullValueInput
+    risksJson?: Prisma.InputJsonValue | Prisma.NullableJsonNullValueInput
+  } = {}
+  
+  if (input.status !== undefined) {
+    updateData.status = input.status
+  }
+  if (input.summary !== undefined) {
+    updateData.summary = input.summary
+  }
+  if (input.tasksJson !== undefined) {
+    updateData.tasksJson = input.tasksJson === null ? Prisma.JsonNull : input.tasksJson
+  }
+  if (input.risksJson !== undefined) {
+    updateData.risksJson = input.risksJson === null ? Prisma.JsonNull : input.risksJson
+  }
+
   const analysis = await db.sessionAnalysis.update({
     where: { sessionId },
-    data: {
-      ...(input.status !== undefined && { status: input.status }),
-      ...(input.summary !== undefined && { summary: input.summary }),
-      ...(input.tasksJson !== undefined && { tasksJson: input.tasksJson }),
-      ...(input.risksJson !== undefined && { risksJson: input.risksJson }),
-    },
+    data: updateData,
   })
 
   return {

@@ -10,7 +10,7 @@
  * - Идеально для speaker diarization в Gladia
  */
 
-import { EgressClient, RoomServiceClient, StreamProtocol } from 'livekit-server-sdk'
+import { EgressClient, RoomServiceClient, StreamProtocol, StreamOutput } from 'livekit-server-sdk'
 import { createRTMPIngest, type RTMPIngest } from './rtmp-ingest.js'
 import dotenv from 'dotenv'
 
@@ -80,14 +80,13 @@ export async function startRoomCompositeTranscription(
     })
 
     // 2. Запускаем Room Composite Egress с audio-only и RTMP выходом
+    const streamOutput = new StreamOutput({
+      protocol: StreamProtocol.RTMP,
+      urls: [rtmpUrl],
+    })
     const egressInfo = await egressClient.startRoomCompositeEgress(
       sessionSlug,
-      {
-        stream: {
-          protocol: StreamProtocol.RTMP,
-          urls: [rtmpUrl],
-        },
-      },
+      streamOutput,
       {
         audioOnly: true, // Только аудио для транскрипции
       }

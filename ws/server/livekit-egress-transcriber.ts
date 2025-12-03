@@ -12,7 +12,7 @@
 
 import { EgressClient, RoomServiceClient } from 'livekit-server-sdk'
 import { WebSocket } from 'ws'
-import { createGladiaBridge, type TranscriptEvent } from './gladia-bridge.js'
+import { createGladiaBridge, type TranscriptEvent, type GladiaBridge } from './gladia-bridge.js'
 import { appendTranscriptChunk } from './append-transcript-chunk.js'
 import { AudioProcessor } from './audio-processor.js'
 import { AudioDecoder } from './audio-decoder.js'
@@ -639,7 +639,7 @@ class EgressTranscriberImpl implements EgressTranscriber {
     // Финальная обработка оставшихся аудио данных
     const remaining = this.audioProcessor.flush()
     if (remaining && this.gladiaBridge) {
-      this.gladiaBridge.sendAudio(remaining)
+      (this.gladiaBridge as GladiaBridge).sendAudio(remaining)
     }
   }
 }

@@ -64,7 +64,7 @@ export async function finalizeSessionTranscript(
 
   // 3. Сохраняем в Vercel Blob
   const { url } = await put(blobPath, body, {
-    access: 'private', // Приватный доступ (требует авторизации для чтения)
+    access: 'public',
     contentType: 'application/json',
   })
 

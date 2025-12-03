@@ -18,7 +18,7 @@ const require = createRequire(import.meta.url)
 const { OpusEncoder } = require('@discordjs/opus')
 
 export class AudioDecoder {
-  private decoder: OpusEncoder | null = null
+  private decoder: InstanceType<typeof OpusEncoder> | null = null
   private readonly sampleRate = 16000 // Gladia требует 16kHz
   private readonly channels = 1 // Моно
 

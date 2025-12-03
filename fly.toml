@@ -14,7 +14,8 @@ primary_region = "fra"
   cpus = 1
   memory_mb = 256
 
-# HTTP/WebSocket сервис - используем http_service для автоматической поддержки WebSocket upgrade
+# HTTP/WebSocket сервис - http_service автоматически создает сервис на портах 80 и 443
+# Fly.io автоматически поддерживает WebSocket upgrade через http_service
 [http_service]
   internal_port = 3001
   force_https = true

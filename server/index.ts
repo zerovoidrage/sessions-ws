@@ -7,7 +7,8 @@ import { startGlobalRTMPServer } from './rtmp-server.js'
 import { handleTranscripts } from './transcripts.js'
 import { handleBroadcast } from './broadcast.js'
 import { initWebSocketConnection, validateTokenAndSession } from './ws-handlers.js'
-import { isTestBroadcastEnabled } from './env.js'
+import { isTestModeEnabled } from './env.js'
+import { sendTranscriptionErrorToSessionClients } from './client-connection.js'
 
 // Режим работы сервера: 'ws' (WebSocket только), 'rtmp' (RTMP только), или undefined (оба - для обратной совместимости)
 const SERVER_MODE = process.env.SERVER_MODE // 'ws' | 'rtmp' | undefined
@@ -117,36 +118,47 @@ const server = http.createServer(async (req, res) => {
     let body = ''
     req.on('data', (chunk) => { body += chunk.toString() })
     req.on('end', async () => {
+      let sessionId: string | undefined
+      let sessionSlug: string | undefined
+
       try {
         console.log(`[WS-SERVER] Parsing request body: ${body}`)
-        const { sessionId, sessionSlug } = JSON.parse(body)
+        const parsed = JSON.parse(body || '{}')
+        sessionId = parsed.sessionId
+        sessionSlug = parsed.sessionSlug
+
+        // Валидация обязательных полей
         if (!sessionId || !sessionSlug) {
-          console.error(`[WS-SERVER] Missing sessionId or sessionSlug in request`)
+          const errorMsg = 'Missing sessionId or sessionSlug'
+          console.error(`[WS-SERVER] ${errorMsg}`, { sessionId, sessionSlug })
           res.statusCode = 400
-          res.end(JSON.stringify({ error: 'Missing sessionId or sessionSlug' }))
+          res.setHeader('Content-Type', 'application/json')
+          res.end(JSON.stringify({ ok: false, error: errorMsg }))
           return
         }
 
-        // Проверка тестового режима
-        const testMode = isTestBroadcastEnabled()
+        // Проверка тестового режима (dev-only)
+        const testMode = isTestModeEnabled()
         if (testMode) {
-          console.log('[WS-SERVER] Test mode enabled – skipping real LiveKit transcription start', {
+          console.log('[WS-SERVER] DEV TEST MODE: skipping real LiveKit transcription start for session', {
             sessionId,
             sessionSlug,
           })
 
           res.statusCode = 200
           res.setHeader('Content-Type', 'application/json')
-          res.end(JSON.stringify({ ok: true, success: true, mode: 'test-broadcast-only', sessionId, message: 'Test mode: transcription start skipped' }))
+          res.end(JSON.stringify({ ok: true, mode: 'test' }))
           return
         }
 
+        // Реальный режим: запускаем транскрипцию через LiveKit
         console.log(`[WS-SERVER] Starting transcription for session ${sessionId} (room: ${sessionSlug})`)
 
         // Отправляем ответ сразу, чтобы избежать таймаута Railway (30 секунд)
         // Запуск транскрипции делаем асинхронно в фоне
         res.statusCode = 200
-        res.end(JSON.stringify({ success: true, sessionId, message: 'Transcription start initiated' }))
+        res.setHeader('Content-Type', 'application/json')
+        res.end(JSON.stringify({ ok: true, mode: 'live' }))
 
         // Запускаем транскрипцию асинхронно (не блокируем ответ)
         const { startServerTranscription } = await import('./livekit-transcriber.js')
@@ -155,13 +167,59 @@ const server = http.createServer(async (req, res) => {
             console.log(`[WS-SERVER] ✅ Transcription started successfully for session ${sessionId}`)
           })
           .catch((error) => {
-            console.error(`[WS-SERVER] ❌ Failed to start transcription for session ${sessionId}:`, error)
+            const errorMessage = error instanceof Error ? error.message : String(error)
+            const isUnauthorized = errorMessage.includes('Unauthorized') || 
+                                  errorMessage.includes('invalid token') ||
+                                  errorMessage.includes('go-jose/go-jose')
+
+            // Логируем ошибку с контекстом
+            if (isUnauthorized) {
+              console.error(`[WS-SERVER] ❌ LiveKit Unauthorized for transcription: invalid token (check LIVEKIT_API_KEY / LIVEKIT_API_SECRET)`, {
+                sessionId,
+                sessionSlug,
+                errorMessage,
+              })
+            } else {
+              console.error(`[WS-SERVER] ❌ Failed to start transcription for session ${sessionId}:`, {
+                sessionId,
+                sessionSlug,
+                error: errorMessage,
+                stack: error instanceof Error ? error.stack : undefined,
+              })
+            }
+
+            // Отправляем ошибку клиентам через WebSocket
+            const reason = isUnauthorized ? 'livekit_unauthorized' : 'internal_error'
+            sendTranscriptionErrorToSessionClients(
+              sessionSlug,
+              reason,
+              isUnauthorized
+                ? 'Failed to start transcription: LiveKit authentication failed. Please check API credentials.'
+                : undefined
+            )
           })
-      } catch (error: any) {
-        console.error('[WS-SERVER] ❌ Error starting transcription:', error)
+      } catch (parseError: any) {
+        console.error('[WS-SERVER] ❌ Error parsing request or starting transcription:', parseError)
+        
         if (!res.headersSent) {
           res.statusCode = 500
-          res.end(JSON.stringify({ error: error.message || 'Failed to start transcription' }))
+          res.setHeader('Content-Type', 'application/json')
+          res.end(JSON.stringify({
+            ok: false,
+            mode: 'live',
+            error: 'transcription_start_failed',
+            reason: 'internal_error',
+            message: parseError.message || 'Failed to start transcription',
+          }))
+        }
+
+        // Отправляем ошибку клиентам, если есть sessionSlug
+        if (sessionSlug) {
+          sendTranscriptionErrorToSessionClients(
+            sessionSlug,
+            'internal_error',
+            'Failed to start transcription. Please contact support.'
+          )
         }
       }
     })

@@ -6,36 +6,7 @@
  */
 
 import { RoomServiceClient } from 'livekit-server-sdk'
-import dotenv from 'dotenv'
-
-dotenv.config()
-
-function getLiveKitEnv() {
-  // Используем WSS URL напрямую
-  const wsUrl = process.env.NEXT_PUBLIC_LIVEKIT_URL || process.env.LIVEKIT_HTTP_URL
-  
-  // Для RoomServiceClient (REST API) нужно преобразовать WSS -> HTTPS
-  let httpUrl = wsUrl
-  if (httpUrl) {
-    httpUrl = httpUrl.trim()
-      .replace(/^wss:\/\//, 'https://')
-      .replace(/^ws:\/\//, 'http://')
-  }
-  
-  const apiKey = process.env.LIVEKIT_API_KEY
-  const apiSecret = process.env.LIVEKIT_API_SECRET
-
-  if (!wsUrl || !httpUrl || !apiKey || !apiSecret) {
-    const missing = []
-    if (!wsUrl) missing.push('NEXT_PUBLIC_LIVEKIT_URL or LIVEKIT_HTTP_URL')
-    if (!httpUrl) missing.push('httpUrl (derived from wsUrl)')
-    if (!apiKey) missing.push('LIVEKIT_API_KEY')
-    if (!apiSecret) missing.push('LIVEKIT_API_SECRET')
-    throw new Error(`Missing required LiveKit environment variables: ${missing.join(', ')}`)
-  }
-
-  return { wsUrl, httpUrl: httpUrl as string, apiKey, apiSecret }
-}
+import { getLiveKitConfig } from './livekit-env.js'
 
 export interface SpeakerMapping {
   speakerId: string // Gladia speaker ID (например, "speaker_0", "speaker_1")
@@ -58,8 +29,8 @@ export class SpeakerMapper {
 
   constructor(sessionSlug: string) {
     this.sessionSlug = sessionSlug
-    const env = getLiveKitEnv()
-    this.roomService = new RoomServiceClient(env.httpUrl, env.apiKey, env.apiSecret)
+    const livekitConfig = getLiveKitConfig()
+    this.roomService = new RoomServiceClient(livekitConfig.httpUrl, livekitConfig.apiKey, livekitConfig.apiSecret)
   }
 
   /**

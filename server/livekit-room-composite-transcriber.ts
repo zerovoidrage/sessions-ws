@@ -12,45 +12,7 @@
 
 import { EgressClient, RoomServiceClient, StreamProtocol, StreamOutput } from 'livekit-server-sdk'
 import { createRTMPIngest, type RTMPIngest } from './rtmp-ingest.js'
-import dotenv from 'dotenv'
-
-dotenv.config()
-
-function getLiveKitEnv() {
-  // Используем WSS URL напрямую
-  const wsUrl = process.env.NEXT_PUBLIC_LIVEKIT_URL || process.env.LIVEKIT_HTTP_URL
-  
-  // Для EgressClient (REST API) нужно преобразовать WSS -> HTTPS
-  // Но для других клиентов используем WSS напрямую
-  let httpUrl = wsUrl
-  if (httpUrl) {
-    const originalUrl = httpUrl.trim()
-    // Преобразуем только для EgressClient (REST API требует HTTPS)
-    httpUrl = originalUrl
-      .replace(/^wss:\/\//, 'https://')
-      .replace(/^ws:\/\//, 'http://')
-  }
-  
-  const apiKey = process.env.LIVEKIT_API_KEY
-  const apiSecret = process.env.LIVEKIT_API_SECRET
-
-  // Логируем для отладки (без секретов)
-  console.log(`[LiveKitEnv] WSS URL: ${wsUrl || 'NOT SET'}`)
-  console.log(`[LiveKitEnv] HTTP URL (for EgressClient): ${httpUrl || 'NOT SET'}`)
-  console.log(`[LiveKitEnv] API Key: ${apiKey ? `${apiKey.substring(0, 4)}...` : 'NOT SET'}`)
-  console.log(`[LiveKitEnv] API Secret: ${apiSecret ? 'SET' : 'NOT SET'}`)
-
-  if (!wsUrl || !httpUrl || !apiKey || !apiSecret) {
-    const missing = []
-    if (!wsUrl) missing.push('NEXT_PUBLIC_LIVEKIT_URL or LIVEKIT_HTTP_URL')
-    if (!httpUrl) missing.push('httpUrl (derived from wsUrl)')
-    if (!apiKey) missing.push('LIVEKIT_API_KEY')
-    if (!apiSecret) missing.push('LIVEKIT_API_SECRET')
-    throw new Error(`Missing required LiveKit environment variables: ${missing.join(', ')}`)
-  }
-
-  return { wsUrl, httpUrl: httpUrl as string, apiKey, apiSecret }
-}
+import { getLiveKitConfig } from './livekit-env.js'
 
 export interface RoomCompositeTranscriber {
   stop(): Promise<void>
@@ -95,11 +57,11 @@ export async function startRoomCompositeTranscription(
 
   console.log(`[RoomCompositeTranscriber] Starting transcription for session ${sessionId} (room: ${sessionSlug})`)
 
-  const livekitEnv = getLiveKitEnv()
+  const livekitConfig = getLiveKitConfig()
   const egressClient = new EgressClient(
-    livekitEnv.httpUrl,
-    livekitEnv.apiKey,
-    livekitEnv.apiSecret
+    livekitConfig.httpUrl,
+    livekitConfig.apiKey,
+    livekitConfig.apiSecret
   )
 
   // RTMP URL для приема потока от Egress
@@ -140,8 +102,32 @@ export async function startRoomCompositeTranscription(
       rtmpIngest,
       rtmpUrl
     )
-  } catch (error) {
-    console.error(`[RoomCompositeTranscriber] Failed to start transcription:`, error)
+  } catch (error: any) {
+    const errorMessage = error instanceof Error ? error.message : String(error)
+    const isUnauthorized = errorMessage.includes('Unauthorized') ||
+                          errorMessage.includes('invalid token') ||
+                          errorMessage.includes('go-jose/go-jose')
+
+    if (isUnauthorized) {
+      const enhancedError = new Error(
+        `LiveKit Unauthorized: invalid token (check LIVEKIT_API_KEY / LIVEKIT_API_SECRET). ` +
+        `Original error: ${errorMessage}`
+      )
+      console.error(`[RoomCompositeTranscriber] Failed to start transcription:`, {
+        sessionId,
+        sessionSlug,
+        error: errorMessage,
+        enhancedMessage: enhancedError.message,
+      })
+      throw enhancedError
+    }
+
+    console.error(`[RoomCompositeTranscriber] Failed to start transcription:`, {
+      sessionId,
+      sessionSlug,
+      error: errorMessage,
+      stack: error instanceof Error ? error.stack : undefined,
+    })
     throw error
   }
 }

@@ -16,47 +16,7 @@ import { createGladiaBridge, type TranscriptEvent, type GladiaBridge } from './g
 import { appendTranscriptChunk } from './append-transcript-chunk.js'
 import { AudioProcessor } from './audio-processor.js'
 import { AudioDecoder } from './audio-decoder.js'
-import dotenv from 'dotenv'
-
-dotenv.config()
-
-// Конфигурация LiveKit для серверного окружения
-// Используем WSS URL напрямую
-const wsUrl = process.env.NEXT_PUBLIC_LIVEKIT_URL || process.env.LIVEKIT_HTTP_URL
-
-// Для EgressClient (REST API) нужно преобразовать WSS -> HTTPS
-function getHttpUrl(): string {
-  if (!wsUrl) {
-    throw new Error('NEXT_PUBLIC_LIVEKIT_URL or LIVEKIT_HTTP_URL must be set')
-  }
-  // Преобразуем только для EgressClient (REST API требует HTTPS)
-  return wsUrl.trim()
-    .replace(/^wss:\/\//, 'https://')
-    .replace(/^ws:\/\//, 'http://')
-}
-
-const livekitEnv = {
-  apiKey: process.env.LIVEKIT_API_KEY!,
-  apiSecret: process.env.LIVEKIT_API_SECRET!,
-  wsUrl: wsUrl!,
-  httpUrl: getHttpUrl(),
-} as const satisfies {
-  apiKey: string
-  apiSecret: string
-  wsUrl: string
-  httpUrl: string
-}
-
-if (!livekitEnv.apiKey || !livekitEnv.apiSecret || !livekitEnv.wsUrl || !livekitEnv.httpUrl) {
-  console.warn('[EgressTranscriber] Missing LIVEKIT env vars', {
-    hasApiKey: !!livekitEnv.apiKey,
-    hasApiSecret: !!livekitEnv.apiSecret,
-    hasWsUrl: !!livekitEnv.wsUrl,
-    hasHttpUrl: !!livekitEnv.httpUrl,
-    nextPublicUrl: process.env.NEXT_PUBLIC_LIVEKIT_URL || 'NOT SET',
-    httpUrl: process.env.LIVEKIT_HTTP_URL || 'NOT SET',
-  })
-}
+import { getLiveKitConfig } from './livekit-env.js'
 
 export interface StartEgressTranscriptionOptions {
   sessionId: string
@@ -197,15 +157,16 @@ class EgressTranscriberImpl implements EgressTranscriber {
     private sessionSlug: string,
     private egressWebSocketUrl?: string
   ) {
+    const livekitConfig = getLiveKitConfig()
     this.egressClient = new EgressClient(
-      livekitEnv.httpUrl,
-      livekitEnv.apiKey,
-      livekitEnv.apiSecret
+      livekitConfig.httpUrl,
+      livekitConfig.apiKey,
+      livekitConfig.apiSecret
     )
     this.roomService = new RoomServiceClient(
-      livekitEnv.httpUrl,
-      livekitEnv.apiKey,
-      livekitEnv.apiSecret
+      livekitConfig.httpUrl,
+      livekitConfig.apiKey,
+      livekitConfig.apiSecret
     )
   }
 
@@ -333,8 +294,30 @@ class EgressTranscriberImpl implements EgressTranscriber {
       for (const { trackId, participantIdentity } of audioTracks) {
         await this.startTrackEgressForTrack(trackId, participantIdentity)
       }
-    } catch (error) {
-      console.error('[EgressTranscriber] Failed to get room info:', error)
+    } catch (error: any) {
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      const isUnauthorized = errorMessage.includes('Unauthorized') ||
+                            errorMessage.includes('invalid token') ||
+                            errorMessage.includes('go-jose/go-jose')
+
+      if (isUnauthorized) {
+        const enhancedError = new Error(
+          `LiveKit Unauthorized: invalid token (check LIVEKIT_API_KEY / LIVEKIT_API_SECRET). ` +
+          `Original error: ${errorMessage}`
+        )
+        console.error('[EgressTranscriber] Failed to get room info:', {
+          sessionSlug: this.sessionSlug,
+          error: errorMessage,
+          enhancedMessage: enhancedError.message,
+        })
+        throw enhancedError
+      }
+
+      console.error('[EgressTranscriber] Failed to get room info:', {
+        sessionSlug: this.sessionSlug,
+        error: errorMessage,
+        stack: error instanceof Error ? error.stack : undefined,
+      })
       throw error
     }
   }
@@ -376,16 +359,33 @@ class EgressTranscriberImpl implements EgressTranscriber {
       // ВАЖНО: Egress подключится к нашему серверу автоматически
       // WebSocket соединение будет обработано в ws/server/index.ts
       // и передано в транскрайбер через registerEgressWebSocket()
-    } catch (error) {
+    } catch (error: any) {
       const errorMessage = error instanceof Error ? error.message : String(error)
+      const isUnauthorized = errorMessage.includes('Unauthorized') ||
+                            errorMessage.includes('invalid token') ||
+                            errorMessage.includes('go-jose/go-jose')
       const isLimitError = errorMessage.includes('limit') || 
                           errorMessage.includes('quota') || 
                           errorMessage.includes('concurrent') ||
                           errorMessage.includes('429')
       
-      const isRetryableError = !isLimitError && retryCount < maxRetries
+      const isRetryableError = !isLimitError && !isUnauthorized && retryCount < maxRetries
 
-      if (isLimitError) {
+      if (isUnauthorized) {
+        // Ошибка авторизации - не retry, бросаем ошибку сразу
+        const enhancedError = new Error(
+          `LiveKit Unauthorized: invalid token (check LIVEKIT_API_KEY / LIVEKIT_API_SECRET). ` +
+          `Original error: ${errorMessage}`
+        )
+        console.error(`[EgressTranscriber] ❌ Failed to start Track Egress for track ${trackId}:`, {
+          sessionSlug: this.sessionSlug,
+          trackId,
+          participantIdentity,
+          error: errorMessage,
+          enhancedMessage: enhancedError.message,
+        })
+        throw enhancedError
+      } else if (isLimitError) {
         // Превышение лимитов - не retry, используем fallback
         console.warn(`[EgressTranscriber] ⚠️ Egress limit reached for track ${trackId}, using fallback`)
         await this.fallbackToClientTranscription(trackId, participantIdentity)

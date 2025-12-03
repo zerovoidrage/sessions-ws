@@ -127,6 +127,59 @@ export function broadcastToSessionClients(sessionSlug: string, payload: any): vo
   }
 }
 
+/**
+ * Отправляет сообщение об ошибке транскрипции всем клиентам сессии.
+ */
+export function sendTranscriptionErrorToSessionClients(
+  sessionSlug: string,
+  reason: 'livekit_unauthorized' | 'internal_error',
+  message?: string
+): void {
+  const clients = sessionClients.get(sessionSlug)
+  if (!clients || clients.size === 0) {
+    console.log('[WS-SERVER] No clients to send transcription error', {
+      sessionSlug,
+      reason,
+    })
+    return
+  }
+
+  const errorPayload = {
+    type: 'transcription_error',
+    reason,
+    message: message || 'Failed to start transcription. Please contact support or check LiveKit API credentials.',
+    sessionSlug,
+    ts: Date.now(),
+  }
+
+  const errorMessage = JSON.stringify(errorPayload)
+  let sentCount = 0
+
+  for (const clientMeta of clients) {
+    if (clientMeta.ws.readyState === WebSocket.OPEN) {
+      try {
+        clientMeta.ws.send(errorMessage)
+        sentCount++
+      } catch (error) {
+        console.error('[WS-SERVER] Failed to send transcription error to client:', {
+          sessionSlug,
+          userId: clientMeta.userId,
+          error,
+        })
+      }
+    }
+  }
+
+  if (sentCount > 0) {
+    console.log('[WS-SERVER] Sent transcription error to clients', {
+      sessionSlug,
+      reason,
+      clientsInSession: clients.size,
+      sent: sentCount,
+    })
+  }
+}
+
 export interface ClientConnectionOptions {
   ws: WebSocket
   req: IncomingMessage

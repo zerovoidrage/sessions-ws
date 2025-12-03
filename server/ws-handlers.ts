@@ -1,5 +1,5 @@
 import type { IncomingMessage } from 'http'
-import type { WebSocket } from 'ws'
+import { WebSocket } from 'ws'
 import { verifyTranscriptionToken } from './client-connection.js'
 import {
   registerClientForSession,
@@ -13,6 +13,7 @@ import {
 import { cleanupClientTracker } from './audio-validator.js'
 import { updateActiveSpeaker, type ActiveSpeakerEvent } from './active-speaker-tracker.js'
 import type { ServerTranscriptionMessage } from './types.js'
+import { isTestModeEnabled } from './env.js'
 
 export interface ClientInfo {
   sessionSlug?: string
@@ -88,7 +89,7 @@ export function initWebSocketConnection(
   }
 
   // Обработчики сообщений от клиента
-  ws.on('message', (data: WebSocket.Data) => {
+  ws.on('message', (data: Buffer | string) => {
     // Обрабатываем только JSON сообщения (active speaker events)
     // Аудио чанки больше не обрабатываем - серверная транскрипция работает через RTMP
     if (typeof data === 'string' || (data instanceof Buffer && data[0] === 0x7B)) {
@@ -134,10 +135,11 @@ export function initWebSocketConnection(
   // Увеличиваем счетчик активных соединений
   incrementConnections()
 
-  // Тестовый broadcast loop для отладки (если включен)
+  // Тестовый broadcast loop для отладки (dev-only, если включен)
   let testBroadcastInterval: NodeJS.Timeout | null = null
-  if (process.env.WS_ENABLE_TEST_BROADCAST === 'true') {
-    console.log('[WS] Test broadcast enabled, will send test transcripts every 5 seconds')
+  if (isTestModeEnabled()) {
+    console.log('[WS-SERVER] ⚠️ DEV TEST MODE: Test broadcast enabled, will send fake test transcripts every 5 seconds')
+    console.log('[WS-SERVER] ⚠️ This is for local development only and should never run in production')
     
     testBroadcastInterval = setInterval(() => {
       if (ws.readyState !== WebSocket.OPEN) {
@@ -158,7 +160,7 @@ export function initWebSocketConnection(
         ts: Date.now(),
       }
 
-      console.log('[WS-SERVER] Sending test transcript', {
+      console.log('[WS-SERVER] [DEV TEST MODE] Sending fake test transcript', {
         sessionSlug,
         userId,
         text: testMessage.text,

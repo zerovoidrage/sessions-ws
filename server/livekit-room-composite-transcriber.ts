@@ -81,14 +81,28 @@ export async function startRoomCompositeTranscription(
   // Используем внешний порт (через TCP прокси Railway, например, 58957)
   const rtmpUrl = `rtmp://${rtmpHost}:${externalPort}/live/${sessionSlug}`
 
+  // В режиме разделенных сервисов (SERVER_MODE=ws) RTMP Ingest НЕ создается на WebSocket сервисе
+  // RTMP Ingest работает на отдельном RTMP сервисе (SERVER_MODE=rtmp)
+  const isSplitMode = process.env.SERVER_MODE === 'ws'
+  
   try {
-    // 1. Запускаем RTMP Ingest сервер для приема потока
-    // Используем внутренний порт (где слушает локальный RTMP сервер)
-    const rtmpIngest = await createRTMPIngest({
-      sessionId,
-      sessionSlug,
-      rtmpPort: internalPort, // Внутренний порт из переменных окружения
-    })
+    let rtmpIngest: RTMPIngest | null = null
+    
+    // Создаем RTMP Ingest только если НЕ в режиме разделенных сервисов
+    if (!isSplitMode) {
+      // 1. Запускаем RTMP Ingest сервер для приема потока
+      // Используем внутренний порт (где слушает локальный RTMP сервер)
+      console.log(`[RoomCompositeTranscriber] Creating local RTMP Ingest (not in split mode)`)
+      rtmpIngest = await createRTMPIngest({
+        sessionId,
+        sessionSlug,
+        rtmpPort: internalPort, // Внутренний порт из переменных окружения
+      })
+    } else {
+      console.log(`[RoomCompositeTranscriber] ⚠️ Split mode detected (SERVER_MODE=ws), skipping local RTMP Ingest creation`)
+      console.log(`[RoomCompositeTranscriber] RTMP Ingest should be running on separate RTMP service (SERVER_MODE=rtmp)`)
+      console.log(`[RoomCompositeTranscriber] LiveKit will stream to: ${rtmpUrl}`)
+    }
 
     // 2. Запускаем Room Composite Egress с audio-only и RTMP выходом
     const streamOutput = new StreamOutput({
@@ -111,7 +125,7 @@ export async function startRoomCompositeTranscription(
       sessionSlug,
       egressClient,
       egressInfo.egressId,
-      rtmpIngest,
+      rtmpIngest || null, // Может быть null в режиме разделенных сервисов
       rtmpUrl
     )
   } catch (error: any) {
@@ -152,7 +166,7 @@ class RoomCompositeTranscriberImpl implements RoomCompositeTranscriber {
     private sessionSlug: string,
     private egressClient: EgressClient,
     private egressId: string,
-    private rtmpIngest: RTMPIngest,
+    private rtmpIngest: RTMPIngest | null, // null в режиме разделенных сервисов
     private rtmpUrl: string
   ) {}
 
@@ -174,8 +188,10 @@ class RoomCompositeTranscriberImpl implements RoomCompositeTranscriber {
     }
 
     try {
-      // Останавливаем RTMP Ingest
-      await this.rtmpIngest.stop()
+      // Останавливаем RTMP Ingest (если он был создан)
+      if (this.rtmpIngest) {
+        await this.rtmpIngest.stop()
+      }
     } catch (error) {
       console.error(`[RoomCompositeTranscriber] Failed to stop RTMP Ingest:`, error)
     }
@@ -185,6 +201,11 @@ class RoomCompositeTranscriberImpl implements RoomCompositeTranscriber {
   }
 
   isActive(): boolean {
+    // В режиме разделенных сервисов RTMP Ingest может быть null
+    // В этом случае считаем активным, если Egress запущен
+    if (!this.rtmpIngest) {
+      return this.isActiveFlag
+    }
     return this.isActiveFlag && this.rtmpIngest.isActive()
   }
 

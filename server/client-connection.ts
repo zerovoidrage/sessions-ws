@@ -182,9 +182,11 @@ export function handleClientConnection({ ws, req }: ClientConnectionOptions): vo
   // Клиенты просто регистрируются и получают транскрипты, которые отправляются через broadcastToSessionClients
   registerClientForSession(sessionSlug, ws)
 
-  // Отправляем initial message клиенту сразу после подключения
-  // Railway proxy может закрывать "пустые" соединения, поэтому отправляем данные как можно скорее
-  const sendInitialMessage = () => {
+  // Отправляем initial message клиенту после того, как соединение полностью установлено
+  // Ждем события 'open' чтобы убедиться, что upgrade полностью завершен
+  ws.once('open', () => {
+    clearInterval(checkInterval)
+    
     if (ws.readyState === WebSocket.OPEN) {
       try {
         const message = JSON.stringify({
@@ -197,39 +199,31 @@ export function handleClientConnection({ ws, req }: ClientConnectionOptions): vo
           messageLength: message.length,
           readyState: ws.readyState,
         })
-        
-        // Отправляем ping сразу после initial message, чтобы Railway proxy не закрыл соединение
-        // Railway может закрывать соединения, которые не обмениваются данными
-        try {
-          ws.ping()
-          console.log('[WS-SERVER] ✅ Ping sent immediately after initial message')
-        } catch (pingError) {
-          console.error('[WS-SERVER] ❌ Failed to send ping after initial message:', pingError)
-        }
       } catch (error) {
         console.error('[WS-SERVER] ❌ Failed to send initial message:', error)
       }
-    } else {
-      console.warn(`[WS-SERVER] ⚠️ WebSocket not OPEN when trying to send initial message (state: ${ws.readyState})`)
     }
-  }
-
-  // Пытаемся отправить сразу, если соединение уже открыто
-  if (ws.readyState === WebSocket.OPEN) {
-    sendInitialMessage()
-  } else {
-    // Если еще не открыто, ждем события 'open' или используем небольшую задержку
-    ws.once('open', () => {
-      clearInterval(checkInterval)
-      sendInitialMessage()
+  })
+  
+  // Обработчики ошибок для диагностики
+  ws.on('error', (error) => {
+    console.error('[WS-SERVER] WebSocket error:', {
+      error: error.message,
+      stack: error.stack,
+      readyState: ws.readyState,
+      sessionSlug,
     })
-    
-    // Fallback: отправляем через небольшую задержку (Railway proxy может задерживать upgrade)
-    setTimeout(() => {
-      clearInterval(checkInterval)
-      sendInitialMessage()
-    }, 50) // Уменьшена задержка до 50ms для более быстрой отправки
-  }
+  })
+  
+  ws.on('close', (code, reason) => {
+    console.log('[WS-SERVER] WebSocket closed', {
+      code,
+      reason: reason.toString(),
+      readyState: ws.readyState,
+      sessionSlug,
+    })
+    clearInterval(checkInterval)
+  })
 
   // Настраиваем ping/pong для поддержания соединения живым
   // Более частый ping в начале для Railway proxy

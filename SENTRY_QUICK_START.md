@@ -47,3 +47,4 @@ SENTRY_PROJECT=rooms
 📖 **Подробная инструкция:** [docs/SENTRY_SETUP.md](./docs/SENTRY_SETUP.md)
 
 
+

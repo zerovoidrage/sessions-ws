@@ -2,7 +2,10 @@
 
 import { useRouter } from 'next/navigation'
 import { useState, useEffect } from 'react'
-import { Button } from '@/shared/ui/button'
+import Image from 'next/image'
+import { Plus } from '@phosphor-icons/react'
+import { StartSessionButton } from '@/shared/ui/start-session-button'
+import { TVNoise } from '@/shared/ui/tv-noise'
 
 const texts = [
   'say goodbye google meet & zoom',
@@ -15,6 +18,7 @@ export default function HomePage() {
   const [currentTextIndex, setCurrentTextIndex] = useState(0)
   const [isDeleting, setIsDeleting] = useState(false)
   const [charIndex, setCharIndex] = useState(0)
+  const [isNoiseActive, setIsNoiseActive] = useState(false)
 
   useEffect(() => {
     const currentText = texts[currentTextIndex]
@@ -51,30 +55,65 @@ export default function HomePage() {
     }
   }, [charIndex, isDeleting, currentTextIndex])
 
-  const handleSignUp = () => {
-    router.push('/auth/signin')
+  const handleSignIn = () => {
+    setIsNoiseActive(true)
+    setTimeout(() => {
+      setIsNoiseActive(false)
+    }, 2000) // 2 секунды
+  }
+
+  const handleStartSession = () => {
+    setIsNoiseActive(true)
+    setTimeout(() => {
+      setIsNoiseActive(false)
+    }, 2000) // 2 секунды
   }
 
   return (
-    <div className="min-h-screen bg-black flex items-center justify-center p-4">
-      <div className="text-center animate-fade-in-up">
-        <h1 className={`text-6xl md:text-9xl lg:text-xl leading-tight mb-2 ${
-          currentTextIndex === 0 ? 'text-white-600' : 'text-white-900'
-        }`}>
-          {displayText}
-          <span className={`inline-block w-0.5 h-[1em] ml-1 animate-blink ${
-            currentTextIndex === 0 ? 'bg-white-600' : 'bg-white-900'
-          }`} />
-        </h1>
-        <div className="mb-20" />
-        <Button
-          onClick={handleSignUp}
-          variant="primary"
-          size="lg"
+    <div className="min-h-screen bg-surface-900 flex flex-col text-sm">
+      {/* Header */}
+      <header className="w-full px-3 py-3 flex items-center justify-between">
+        <Image
+          src="/img/logo.svg"
+          alt="Logo"
+          width={16}
+          height={16}
+          className="h-auto"
+        />
+        <button
+          onClick={handleSignIn}
+          className="text-sm text-white-600 hover:text-white-900 transition-colors"
         >
-          enter the OS
-        </Button>
+          {'>'} enter OS
+        </button>
+      </header>
+
+      {/* Main content - centered title with typing animation */}
+      <div className="flex-1 flex items-center justify-center">
+        <h1 className="text-[18px] tracking-[-0.02em] text-white-900 leading-[1.5] text-center flex items-center gap-1">
+          {displayText}
+          <Image
+            src="/img/logo-w.svg"
+            alt=""
+            width={16}
+            height={16}
+            className={`inline-block ml-0 animate-blink ${
+              currentTextIndex === 0 ? 'opacity-60' : 'opacity-100'
+            }`}
+          />
+        </h1>
       </div>
+
+      {/* Start Session Button - centered at bottom with 60px margin */}
+      <div className="flex justify-center mb-[60px] ">
+        <StartSessionButton onClick={handleStartSession} className="justify-between px-6">
+          <span>start AI session</span>
+          <Plus size={14} />
+        </StartSessionButton>
+      </div>
+
+      {/* TV Noise Effect */}
+      <TVNoise isActive={isNoiseActive} duration={2000} />
     </div>
   )
 }

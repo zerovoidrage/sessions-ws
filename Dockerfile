@@ -20,8 +20,8 @@ WORKDIR /app
 COPY package.json ./
 COPY prisma ./prisma
 
-# Устанавливаем зависимости (используем npm install, так как нет package-lock.json)
-RUN npm install --omit=dev
+# Устанавливаем зависимости (включая devDependencies для tsx)
+RUN npm install
 
 # Генерируем Prisma Client (prisma теперь в dependencies)
 RUN npx prisma generate
@@ -29,9 +29,10 @@ RUN npx prisma generate
 # Копируем остальные файлы
 COPY . .
 
-# Открываем порты (PORT будет установлен Fly.io, RTMP на 1937)
-EXPOSE 3001 1937
+# Открываем порты (PORT для Next.js, WS_PORT для WS/RTMP сервера, RTMP на 1937)
+# В моносервисе Next.js работает на PORT (3000), WS/RTMP сервер на WS_PORT (3001)
+EXPOSE ${PORT:-3000} ${WS_PORT:-3001} 1937
 
-# Запускаем сервер
-CMD ["npm", "start"]
+# Запускаем моносервис (Next.js + WS/RTMP сервер через concurrently)
+CMD ["npm", "run", "start:monolith"]
 

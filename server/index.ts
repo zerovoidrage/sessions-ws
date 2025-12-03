@@ -14,10 +14,13 @@ import { sendTranscriptionErrorToSessionClients } from './client-connection.js'
 // Режим работы сервера: 'ws' (WebSocket только), 'rtmp' (RTMP только), или undefined (оба - для обратной совместимости)
 const SERVER_MODE = process.env.SERVER_MODE // 'ws' | 'rtmp' | undefined
 const RTMP_PORT = parseInt(process.env.RTMP_PORT || '1937', 10)
+// Для моносервиса: Next.js работает на PORT (3000), WS сервер на WS_PORT (3001)
+// Если WS_PORT не установлен, используем PORT+1 или 3001
 const envPort = Number(process.env.PORT)
-// Для моносервиса: PORT должен быть для HTTP/WebSocket (3000), RTMP_PORT - для RTMP (1937)
-// Если PORT не установлен, используем 3000 (стандартный для Next.js)
-const port = Number.isFinite(envPort) ? Number(envPort) : 3000
+const envWsPort = Number(process.env.WS_PORT)
+const port = Number.isFinite(envWsPort) 
+  ? Number(envWsPort) 
+  : (Number.isFinite(envPort) ? Number(envPort) + 1 : 3001)
 
 // Логируем конфигурацию портов и режим работы для отладки
 const serverMode = SERVER_MODE || 'both'

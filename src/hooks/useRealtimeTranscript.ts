@@ -112,42 +112,54 @@ export function useRealtimeTranscript(
           }
 
           const now = Date.now()
-          const msg: TranscriptMessage = {
-            id: data.utteranceId ?? `${data.ts}-${Math.random().toString(16).slice(2)}`,
+          const serverTs = data.ts ?? now
+          const clientLatency = now - serverTs
+
+          // Замер клиентской latency с предупреждениями
+          if (clientLatency > 2000) {
+            console.warn('[CLIENT_METRICS] ⚠️ High client-side transcript latency', {
+              clientLatency,
+              isFinal: data.isFinal,
+              textPreview: data.text?.slice(0, 80),
+              sessionSlug,
+            })
+          }
+
+          const base: TranscriptMessage = {
+            id: data.utteranceId ?? `${serverTs}-${Math.random().toString(16).slice(2)}`,
             text: data.text,
             speaker: data.speaker,
-            ts: data.ts ?? now,
+            ts: serverTs,
             lastUpdateAt: now,
           }
 
-          // Замер клиентской latency с предупреждениями
-          if (typeof data.ts === 'number') {
-            const clientLatency = now - data.ts
-            if (clientLatency > 2000) {
-              console.warn('[CLIENT_METRICS] ⚠️ High transcript latency', {
-                clientLatency,
-                textPreview: data.text?.slice(0, 40),
-                isFinal: data.isFinal,
-                sessionSlug,
-              })
-            }
-            // Для отладки можно иногда логировать нормальные значения
-            // else if (Math.random() < 0.1) {
-            //   console.log('[CLIENT_METRICS] transcript_latency_ms', clientLatency)
-            // }
-          }
-
           if (data.isFinal) {
-            // Финальный транскрипт - добавляем в messages
-            setMessages((prev) => [...prev, msg])
-            setCurrentUtterance((prev) =>
-              prev && prev.id === msg.id ? null : prev
-            )
+            // Финальный транскрипт
+            // Проверяем, есть ли уже текущий utterance с таким же id
+            setCurrentUtterance((prev) => {
+              if (prev && prev.id === base.id) {
+                // Обновляем существующий и добавляем в messages
+                setMessages((m) => [...m, { ...base, isFinal: true }])
+                return null
+              }
+              return prev
+            })
+            
+            // Если не было текущего с таким id - просто добавляем в messages
+            setMessages((prev) => {
+              // Проверяем, нет ли уже такого сообщения
+              const exists = prev.some((m) => m.id === base.id)
+              if (exists) {
+                return prev
+              }
+              return [...prev, base]
+            })
+            
             currentUtteranceRef.current = null
           } else {
-            // Interim транскрипт - обновляем currentUtterance
-            setCurrentUtterance(msg)
-            currentUtteranceRef.current = msg
+            // Interim транскрипт - всегда показываем мгновенно как currentUtterance
+            setCurrentUtterance(base)
+            currentUtteranceRef.current = base
           }
         }
 

@@ -105,12 +105,43 @@ function parseTranscriptMessage(message: any): TranscriptEvent | null {
                      data.speaker_name || 
                      (speakerId ? `Speaker ${speakerId}` : undefined)
 
+  // Извлекаем реальные тайминги от Gladia (если есть)
+  // Gladia Live v2 может возвращать timestamp, start_time, end_time в разных форматах
+  let startedAt: Date | undefined
+  let endedAt: Date | undefined
+  
+  // Проверяем различные возможные поля для таймингов
+  if (data.timestamp) {
+    // Если есть timestamp - используем его как startedAt
+    startedAt = new Date(data.timestamp)
+  } else if (data.start_time) {
+    startedAt = new Date(data.start_time)
+  } else if (data.utterance?.start_time) {
+    startedAt = new Date(data.utterance.start_time)
+  }
+  
+  if (isFinal) {
+    // Для финальных транскриптов проверяем end_time
+    // Важно: создаем endedAt ТОЛЬКО если есть реальный тайминг от Gladia
+    // Если нет - оставляем undefined, чтобы не записывать фиктивную метрику gladia.stt_latency_ms
+    if (data.end_time) {
+      endedAt = new Date(data.end_time)
+    } else if (data.utterance?.end_time) {
+      endedAt = new Date(data.utterance.end_time)
+    }
+    // НЕ используем data.timestamp как fallback для endedAt,
+    // так как timestamp может быть временем получения сообщения, а не окончания транскрипта
+  }
+  
+  // Если таймингов нет - не создаем фиктивные
+  // Это важно для корректной метрики gladia.stt_latency_ms
+
   return {
     utteranceId,
     text,
     isFinal,
-    startedAt: new Date(),
-    endedAt: isFinal ? new Date() : undefined,
+    startedAt: startedAt || new Date(), // Fallback только для startedAt (обязательное поле)
+    endedAt, // undefined если нет реального тайминга
     speakerId,
     speakerName,
   }
@@ -173,10 +204,18 @@ export async function createGladiaBridge(): Promise<GladiaBridge> {
         // Добавляем timestamp получения сообщения
         transcriptEvent.receivedAt = receivedAt
         
-        // Телеметрия: задержка обработки в Gladia (для финальных транскриптов)
-        if (transcriptEvent.endedAt) {
-          const sttLatency = receivedAt - transcriptEvent.endedAt.getTime()
-          recordLatency('gladia.stt_latency_ms', sttLatency)
+        // Телеметрия: задержка обработки в Gladia (только для финальных транскриптов с реальным endedAt)
+        // Важно: записываем метрику только если endedAt был получен от Gladia (не фиктивный)
+        // В parseTranscriptMessage мы создаем endedAt ТОЛЬКО если есть реальный end_time от Gladia
+        if (transcriptEvent.isFinal && transcriptEvent.endedAt) {
+          // Если endedAt существует, значит он был получен от Gladia (реальный тайминг)
+          const endedAtTime = transcriptEvent.endedAt.getTime()
+          const sttLatency = receivedAt - endedAtTime
+          
+          // Записываем метрику только если latency осмысленная (положительная и разумная)
+          if (sttLatency > 0 && sttLatency < 10000) {
+            recordLatency('gladia.stt_latency_ms', sttLatency)
+          }
         }
         
         transcriptCallback(transcriptEvent)

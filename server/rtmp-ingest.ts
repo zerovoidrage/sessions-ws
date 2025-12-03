@@ -459,6 +459,9 @@ class RTMPIngestImpl extends EventEmitter implements RTMPIngest {
     this.stopAudioMetrics()
     this.ffmpegRestartAttempts = 0
     this.ffmpegStderrLines = []
+    // Сбрасываем телеметрию при остановке FFmpeg
+    this.lastAudioChunkSentAt = null
+    this.lastTranscriptReceivedAt = null
   }
   }
 
@@ -629,9 +632,41 @@ class RTMPIngestImpl extends EventEmitter implements RTMPIngest {
     this.lastTranscriptReceivedAt = now
 
     // Телеметрия: задержка от последней отправки аудио до получения транскрипта
+    // Используем receivedAt от Gladia Bridge для более точного измерения
+    if (event.receivedAt) {
+      // Время от получения аудио Gladia до обработки в нашем коде
+      const processingLatency = now - event.receivedAt
+      recordLatency('ingest.processing_latency_ms', processingLatency)
+    }
+    
+    // Метрика: время от последней отправки аудио чанка до получения транскрипта
+    // Это показывает общую задержку пайплайна (FFmpeg → Gladia → наш код)
     if (this.lastAudioChunkSentAt) {
       const diff = now - this.lastAudioChunkSentAt
       recordLatency('stt.end_to_transcript_ms', diff)
+      
+      // Предупреждение при высоких задержках
+      if (diff > 2000) {
+        console.warn('[METRICS] ⚠️ High STT latency', {
+          sessionId: this.config.sessionId,
+          sessionSlug: this.config.sessionSlug,
+          diffMs: diff,
+          isFinal: event.isFinal,
+          textPreview: event.text.slice(0, 80),
+        })
+      }
+    } else {
+      // Если lastAudioChunkSentAt не установлен, это может означать:
+      // 1. Транскрипт пришел до первого чанка (маловероятно)
+      // 2. FFmpeg еще не начал отправлять данные
+      // Логируем для отладки
+      if (Math.random() < 0.1) { // 10% логов
+        console.warn('[RTMPIngest] ⚠️ Transcript received but lastAudioChunkSentAt is null', {
+          sessionSlug: this.config.sessionSlug,
+          utteranceId: event.utteranceId,
+          isFinal: event.isFinal,
+        })
+      }
     }
 
     // Получаем текущего активного спикера для этой сессии

@@ -326,11 +326,12 @@ server.on('error', (error: any) => {
   }
 })
 
-server.listen(port, async () => {
+// Слушаем на 0.0.0.0 чтобы Fly.io proxy мог подключиться
+server.listen(port, '0.0.0.0', async () => {
   console.log(`[WS-SERVER] ✅ WebSocket server running on port ${port}`)
-  console.log(`[WS-SERVER] Metrics endpoint: http://localhost:${port}/metrics`)
-  console.log(`[WS-SERVER] Health check: http://localhost:${port}/health`)
-  console.log(`[WS-SERVER] WebSocket endpoint: ws://localhost:${port}/api/realtime/transcribe`)
+  console.log(`[WS-SERVER] Metrics endpoint: http://0.0.0.0:${port}/metrics`)
+  console.log(`[WS-SERVER] Health check: http://0.0.0.0:${port}/health`)
+  console.log(`[WS-SERVER] WebSocket endpoint: ws://0.0.0.0:${port}/api/realtime/transcribe`)
   
   // Запускаем глобальный RTMP сервер для Room Composite Egress
   // RTMP сервер слушает на отдельном порту (1936 по умолчанию), не на HTTP/WebSocket порту

@@ -14,35 +14,7 @@ primary_region = "fra"
   cpus = 1
   memory_mb = 256
 
-# HTTP/WebSocket сервис
-[[services]]
-  internal_port = 3001
-  protocol = "tcp"
-  processes = ["app"]
-
-  # HTTPS/WebSocket через порт 443
-  [[services.ports]]
-    port = 443
-    handlers = ["tls", "http"]
-    force_https = true
-
-  # HTTP редирект на HTTPS
-  [[services.ports]]
-    port = 80
-    handlers = ["http"]
-    force_https = true
-
-# RTMP сервис на порту 1937 (TCP)
-[[services]]
-  internal_port = 1937
-  protocol = "tcp"
-  processes = ["app"]
-
-  [[services.ports]]
-    port = 1937
-    handlers = ["tcp"]
-
-# Health check и автостарт/стоп машин
+# HTTP/WebSocket сервис - используем http_service для автоматической поддержки WebSocket upgrade
 [http_service]
   internal_port = 3001
   force_https = true
@@ -57,4 +29,14 @@ primary_region = "fra"
     method = "GET"
     timeout = "5s"
     path = "/health"
+
+# RTMP сервис на порту 1937 (TCP)
+[[services]]
+  internal_port = 1937
+  protocol = "tcp"
+  processes = ["app"]
+
+  [[services.ports]]
+    port = 1937
+    handlers = ["tcp"]
 

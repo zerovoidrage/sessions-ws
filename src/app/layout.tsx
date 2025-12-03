@@ -38,8 +38,11 @@ const suisseIntl = localFont({
 })
 
 export const metadata: Metadata = {
-  title: 'Rooms - Video Calls',
+  title: 'sessions.ai',
   description: 'Video calls powered by LiveKit',
+  icons: {
+    icon: '/img/favicon.png',
+  },
 }
 
 export default function RootLayout({

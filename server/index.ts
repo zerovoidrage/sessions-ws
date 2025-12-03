@@ -1,10 +1,11 @@
 import http from 'http'
 import { WebSocketServer } from 'ws'
-import { handleClientConnection } from './client-connection.js'
+import url from 'url'
 import { getMetrics } from './metrics.js'
 import { getQueueMetrics, flushAllPending, stopFlushTimer } from './transcript-batch-queue.js'
 import { startGlobalRTMPServer } from './rtmp-server.js'
-import { broadcastToSessionClients } from './client-connection.js'
+import { handleTranscripts } from './transcripts.js'
+import { initWebSocketConnection, validateTokenAndSession } from './ws-handlers.js'
 
 // Режим работы сервера: 'ws' (WebSocket только), 'rtmp' (RTMP только), или undefined (оба - для обратной совместимости)
 const SERVER_MODE = process.env.SERVER_MODE // 'ws' | 'rtmp' | undefined
@@ -21,12 +22,12 @@ console.log(`[WS-SERVER] Port configuration:`, {
   finalPORT: port,
 })
 
-// Создаем HTTP сервер для WebSocket upgrade
-const server = http.createServer()
+// Создаём HTTP server с ОЧЕНЬ явной маршрутизацией
+const server = http.createServer(async (req, res) => {
+  const parsedUrl = url.parse(req.url || '', true)
+  const pathname = parsedUrl.pathname || '/'
 
-// HTTP endpoint для метрик
-server.on('request', (req, res) => {
-  // Логируем ВСЕ входящие запросы в самом начале
+  // Логируем все HTTP запросы
   console.log(`[WS-SERVER] 🔵 HTTP REQUEST: ${req.method} ${req.url}`, {
     host: req.headers.host,
     upgrade: req.headers.upgrade,
@@ -34,31 +35,42 @@ server.on('request', (req, res) => {
     'content-type': req.headers['content-type'],
   })
 
-  // Пропускаем WebSocket upgrade запросы - их обрабатывает WebSocketServer
-  // WebSocketServer слушает событие 'upgrade', которое срабатывает ДО события 'request'
-  // Но на всякий случай проверяем заголовок upgrade
-  if (req.headers.upgrade === 'websocket') {
-    // Не обрабатываем WebSocket запросы в HTTP обработчике
-    // WebSocketServer обработает их через событие 'upgrade'
-    console.log(`[WS-SERVER] ⚪ Skipping WebSocket upgrade request`)
-    return
-  }
-
-  // CORS headers для возможности доступа из браузера (опционально)
+  // CORS headers для возможности доступа из браузера
   res.setHeader('Access-Control-Allow-Origin', '*')
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
-  
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+
   // Handle preflight requests
   if (req.method === 'OPTIONS') {
     res.statusCode = 204
     res.end()
     return
   }
-  
+
   res.setHeader('Content-Type', 'application/json')
 
-  if (req.url === '/metrics' && req.method === 'GET') {
+  // Важно: /api/realtime/transcribe как HTTP endpoint сразу отвергаем
+  // Это только WebSocket endpoint
+  if (pathname === '/api/realtime/transcribe') {
+    res.statusCode = 426
+    res.end(JSON.stringify({ error: 'WebSocket endpoint. Use WebSocket upgrade.' }))
+    return
+  }
+
+  // Health check endpoint
+  if (pathname === '/health' && req.method === 'GET') {
+    const queueMetrics = getQueueMetrics()
+    res.statusCode = 200
+    res.end(JSON.stringify({
+      status: 'ok',
+      timestamp: new Date().toISOString(),
+      queueLength: queueMetrics.queueLength,
+    }))
+    return
+  }
+
+  // Metrics endpoint
+  if (pathname === '/metrics' && req.method === 'GET') {
     try {
       const metrics = getMetrics()
       const queueMetrics = getQueueMetrics()
@@ -74,20 +86,19 @@ server.on('request', (req, res) => {
     return
   }
 
-  // Health check endpoint
-  if (req.url === '/health' && req.method === 'GET') {
-    const queueMetrics = getQueueMetrics()
-    res.statusCode = 200
-    res.end(JSON.stringify({
-      status: 'ok',
-      timestamp: new Date().toISOString(),
-      queueLength: queueMetrics.queueLength,
-    }))
-    return
+  // API endpoint для приема транскриптов от RTMP сервера (межсервисная связь)
+  if (pathname === '/api/transcripts' && req.method === 'POST') {
+    // Этот endpoint доступен только в режиме WebSocket сервера
+    if (SERVER_MODE === 'rtmp') {
+      res.statusCode = 503
+      res.end(JSON.stringify({ error: 'This endpoint is not available in RTMP-only mode' }))
+      return
+    }
+    return handleTranscripts(req, res)
   }
 
   // API endpoint для запуска серверной транскрипции
-  if (req.url?.startsWith('/api/transcription/start') && req.method === 'POST') {
+  if (pathname?.startsWith('/api/transcription/start') && req.method === 'POST') {
     console.log(`[WS-SERVER] Received transcription start request: ${req.url}`)
     let body = ''
     req.on('data', (chunk) => { body += chunk.toString() })
@@ -103,12 +114,12 @@ server.on('request', (req, res) => {
         }
 
         console.log(`[WS-SERVER] Starting transcription for session ${sessionId} (room: ${sessionSlug})`)
-        
+
         // Отправляем ответ сразу, чтобы избежать таймаута Railway (30 секунд)
         // Запуск транскрипции делаем асинхронно в фоне
         res.statusCode = 200
         res.end(JSON.stringify({ success: true, sessionId, message: 'Transcription start initiated' }))
-        
+
         // Запускаем транскрипцию асинхронно (не блокируем ответ)
         const { startServerTranscription } = await import('./livekit-transcriber.js')
         startServerTranscription({ sessionId, sessionSlug })
@@ -120,15 +131,17 @@ server.on('request', (req, res) => {
           })
       } catch (error: any) {
         console.error('[WS-SERVER] ❌ Error starting transcription:', error)
-        res.statusCode = 500
-        res.end(JSON.stringify({ error: error.message || 'Failed to start transcription' }))
+        if (!res.headersSent) {
+          res.statusCode = 500
+          res.end(JSON.stringify({ error: error.message || 'Failed to start transcription' }))
+        }
       }
     })
     return
   }
 
   // API endpoint для остановки серверной транскрипции
-  if (req.url?.startsWith('/api/transcription/stop') && req.method === 'POST') {
+  if (pathname?.startsWith('/api/transcription/stop') && req.method === 'POST') {
     let body = ''
     req.on('data', (chunk) => { body += chunk.toString() })
     req.on('end', async () => {
@@ -142,68 +155,22 @@ server.on('request', (req, res) => {
 
         const { stopServerTranscription } = await import('./livekit-transcriber.js')
         await stopServerTranscription(sessionId)
-        
+
         res.statusCode = 200
         res.end(JSON.stringify({ success: true, sessionId }))
       } catch (error: any) {
         console.error('[WS-SERVER] Error stopping transcription:', error)
-        res.statusCode = 500
-        res.end(JSON.stringify({ error: error.message || 'Failed to stop transcription' }))
-      }
-    })
-    return
-  }
-
-  // API endpoint для приема транскриптов от RTMP сервера (межсервисная связь)
-  if (req.url?.startsWith('/api/transcripts') && req.method === 'POST') {
-    // Этот endpoint доступен только в режиме WebSocket сервера
-    if (SERVER_MODE === 'rtmp') {
-      res.statusCode = 503
-      res.end(JSON.stringify({ error: 'This endpoint is not available in RTMP-only mode' }))
-      return
-    }
-
-    let body = ''
-    req.on('data', (chunk) => { body += chunk.toString() })
-    req.on('end', async () => {
-      try {
-        // Проверка авторизации (shared secret между сервисами)
-        const authHeader = req.headers.authorization
-        const expectedSecret = process.env.RTMP_SERVER_SECRET
-        if (expectedSecret && authHeader !== `Bearer ${expectedSecret}`) {
-          console.warn(`[WS-SERVER] Unauthorized transcript submission attempt from ${req.socket.remoteAddress}`)
-          res.statusCode = 401
-          res.end(JSON.stringify({ error: 'Unauthorized' }))
-          return
+        if (!res.headersSent) {
+          res.statusCode = 500
+          res.end(JSON.stringify({ error: error.message || 'Failed to stop transcription' }))
         }
-
-        const transcript = JSON.parse(body)
-        const { sessionSlug, ...payload } = transcript
-
-        if (!sessionSlug) {
-          res.statusCode = 400
-          res.end(JSON.stringify({ error: 'Missing sessionSlug' }))
-          return
-        }
-
-        console.log(`[WS-SERVER] Received transcript from RTMP server for session: ${sessionSlug}`)
-        
-        // Broadcast транскрипта всем подключенным WebSocket клиентам сессии
-        broadcastToSessionClients(sessionSlug, payload)
-
-        res.statusCode = 200
-        res.end(JSON.stringify({ status: 'ok' }))
-      } catch (error: any) {
-        console.error('[WS-SERVER] Error processing transcript from RTMP server:', error)
-        res.statusCode = 400
-        res.end(JSON.stringify({ error: error.message || 'Invalid request' }))
       }
     })
     return
   }
 
   // API endpoint для active speaker events (HTTP вместо WebSocket для лучшей совместимости с Railway)
-  if (req.url?.startsWith('/api/active-speaker') && req.method === 'POST') {
+  if (pathname?.startsWith('/api/active-speaker') && req.method === 'POST') {
     let body = ''
     req.on('data', (chunk) => { body += chunk.toString() })
     req.on('end', async () => {
@@ -239,44 +206,48 @@ server.on('request', (req, res) => {
         res.end(JSON.stringify({ success: true }))
       } catch (error: any) {
         console.error('[WS-SERVER] Error processing active speaker event:', error)
-        res.statusCode = 500
-        res.end(JSON.stringify({ error: error.message || 'Failed to process active speaker event' }))
+        if (!res.headersSent) {
+          res.statusCode = 500
+          res.end(JSON.stringify({ error: error.message || 'Failed to process active speaker event' }))
+        }
       }
     })
     return
   }
 
   // Root endpoint - информация о сервере
-  if (req.url === '/' && req.method === 'GET') {
+  if (pathname === '/' && req.method === 'GET') {
     res.statusCode = 200
     res.end(JSON.stringify({
       service: 'Sessions WebSocket Transcription Server',
       status: 'running',
       version: '1.0.0',
+      mode: SERVER_MODE || 'both',
       endpoints: {
         health: '/health',
         metrics: '/metrics',
         websocket: '/api/realtime/transcribe',
         startTranscription: 'POST /api/transcription/start',
-        stopTranscription: 'POST /api/transcription/stop'
+        stopTranscription: 'POST /api/transcription/stop',
       },
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     }))
     return
   }
 
   // Тестовый endpoint для проверки доступности сервера
-  if (req.url === '/test' && req.method === 'GET') {
+  if (pathname === '/test' && req.method === 'GET') {
     res.statusCode = 200
-    res.end(JSON.stringify({ 
-      status: 'ok', 
+    res.end(JSON.stringify({
+      status: 'ok',
       message: 'Server is running',
       timestamp: new Date().toISOString(),
       port: port,
       env: {
         PORT: process.env.PORT,
         NODE_ENV: process.env.NODE_ENV,
-      }
+        SERVER_MODE: SERVER_MODE || 'both',
+      },
     }))
     return
   }
@@ -287,37 +258,38 @@ server.on('request', (req, res) => {
   res.end(JSON.stringify({ error: 'Not found', path: req.url, method: req.method }))
 })
 
-// Создаём WebSocketServer только если не в режиме RTMP-only
+// WebSocketServer создаём ТОЛЬКО в режиме, отличном от 'rtmp'
 let wss: WebSocketServer | null = null
 let egressWss: WebSocketServer | null = null
 
 if (SERVER_MODE !== 'rtmp') {
-  // WebSocketServer автоматически обрабатывает upgrade запросы для указанного path
+  // Ключевое изменение: используем noServer: true для полного контроля над upgrade
   wss = new WebSocketServer({
-    server,
-    path: '/api/realtime/transcribe',
-    perMessageDeflate: false, // Railway proxy корёжит deflate-фреймы — выключаем компрессию
+    noServer: true, // <-- ключевой момент
+    perMessageDeflate: false, // для устранения Invalid frame header через прокси
   })
 
-  wss.on('connection', (ws, req: http.IncomingMessage) => {
-    console.log(`[WS-SERVER] ✅ WebSocket connection established: ${req.url}`)
-    handleClientConnection({ ws, req })
+  // Все события connection/close/ping/pong обрабатываются в ws-handlers
+  wss.on('connection', (ws, request) => {
+    // request будет передан при вызове handleUpgrade, но нам нужен clientInfo
+    // Поэтому мы передадим его через кастомное свойство
+    const clientInfo = (request as any).clientInfo || {}
+    initWebSocketConnection(ws, request, clientInfo)
   })
 
   // WebSocket endpoint для получения аудио потока от LiveKit Track Egress
   // Формат URL: /egress/audio/{sessionId}/{trackId}
   egressWss = new WebSocketServer({
-    server,
-    path: '/egress/audio',
+    noServer: true,
     perMessageDeflate: false,
   })
 
   egressWss.on('connection', (ws, req: http.IncomingMessage) => {
     // Парсим sessionId и trackId из URL
-    const url = new URL(req.url || '', `http://${req.headers.host}`)
-    const pathParts = url.pathname.split('/').filter(Boolean)
+    const parsedUrl = url.parse(req.url || '', true)
+    const pathParts = (parsedUrl.pathname || '').split('/').filter(Boolean)
     // pathParts: ['egress', 'audio', sessionId, trackId]
-    
+
     if (pathParts.length < 4) {
       ws.close(4001, 'Invalid URL format. Expected: /egress/audio/{sessionId}/{trackId}')
       return
@@ -325,14 +297,14 @@ if (SERVER_MODE !== 'rtmp') {
 
     const sessionId = pathParts[2]
     const trackId = pathParts[3]
-    
+
     if (!sessionId || !trackId) {
       ws.close(4001, 'Missing sessionId or trackId')
       return
     }
 
     console.log(`[WS-SERVER] Egress audio connection for session ${sessionId}, track ${trackId}`)
-    
+
     // Регистрируем WebSocket соединение в транскрайбере
     // Динамический импорт, чтобы избежать циклических зависимостей
     import('./livekit-egress-transcriber.js')
@@ -344,39 +316,104 @@ if (SERVER_MODE !== 'rtmp') {
         ws.close(5000, 'Failed to register connection')
       })
   })
-}
 
-// Добавляем явный обработчик upgrade для логирования и отладки
-// ВАЖНО: WebSocketServer уже обрабатывает upgrade для своего path,
-// но мы добавляем логирование для всех upgrade запросов ПЕРЕД WebSocketServer
-server.on('upgrade', (request, socket, head) => {
-  const pathname = new URL(request.url || '', `http://${request.headers.host}`).pathname
-  
-  console.log(`[WS-SERVER] 🔄 Upgrade request received: ${pathname}`, {
-    method: request.method,
-    url: request.url,
-    headers: {
-      upgrade: request.headers.upgrade,
-      connection: request.headers.connection,
-      'sec-websocket-key': request.headers['sec-websocket-key']?.substring(0, 20) + '...',
-      'sec-websocket-version': request.headers['sec-websocket-version'],
-      host: request.headers.host,
-      origin: request.headers.origin,
-    },
-    remoteAddress: request.socket.remoteAddress,
-  })
-  
-  // В режиме RTMP-only отклоняем WebSocket запросы
-  if (SERVER_MODE === 'rtmp') {
-    console.warn(`[WS-SERVER] WebSocket upgrade rejected: RTMP-only mode`)
+  // Явно и очень аккуратно обрабатываем upgrade
+  // ВАЖНО: этот обработчик должен быть ОДИН на весь сервер
+  server.on('upgrade', (req, socket, head) => {
+    const parsedUrl = url.parse(req.url || '', true)
+    const pathname = parsedUrl.pathname || ''
+
+    console.log(`[WS-SERVER] 🔄 Upgrade request received: ${pathname}`, {
+      method: req.method,
+      url: req.url,
+      headers: {
+        upgrade: req.headers.upgrade,
+        connection: req.headers.connection,
+        'sec-websocket-key': req.headers['sec-websocket-key']?.substring(0, 20) + '...',
+        'sec-websocket-version': req.headers['sec-websocket-version'],
+        host: req.headers.host,
+        origin: req.headers.origin,
+      },
+      remoteAddress: socket.remoteAddress,
+    })
+
+    // В режиме RTMP-only отклоняем WebSocket запросы
+    if (SERVER_MODE === 'rtmp') {
+      console.warn(`[WS-SERVER] WebSocket upgrade rejected: RTMP-only mode`)
+      socket.write('HTTP/1.1 403 Forbidden\r\n\r\n')
+      socket.destroy()
+      return
+    }
+
+    // Обрабатываем /api/realtime/transcribe endpoint
+    if (pathname === '/api/realtime/transcribe') {
+      if (!wss) {
+        console.error('[WS-SERVER] WebSocketServer not initialized')
+        socket.write('HTTP/1.1 500 Internal Server Error\r\n\r\n')
+        socket.destroy()
+        return
+      }
+
+      // Извлекаем токен и sessionSlug из query параметров
+      const token = parsedUrl.query?.token as string | undefined
+      const sessionSlug = parsedUrl.query?.sessionSlug as string | undefined
+
+      // Валидация токена/сессии ДО handleUpgrade (минимум surface area)
+      const authResult = validateTokenAndSession(token, sessionSlug)
+      if (!authResult.ok) {
+        console.warn(`[WS-SERVER] WebSocket upgrade rejected: authentication failed`)
+        socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n')
+        socket.destroy()
+        return
+      }
+
+      // Передаём данные в callback через "clientInfo" (сохраняем в request)
+      const clientInfo = {
+        sessionSlug: authResult.sessionSlug,
+        userId: authResult.userId,
+        identity: authResult.identity,
+        sessionId: authResult.sessionId,
+      }
+
+      // Передаем clientInfo через request объект
+      ;(req as any).clientInfo = clientInfo
+
+      console.log(`[WS-SERVER] Forwarding upgrade to WebSocketServer for ${pathname}`, { clientInfo })
+
+      // Передаем управление WebSocketServer
+      wss.handleUpgrade(req, socket, head, (ws) => {
+        // Это callback вызывается после успешного upgrade
+        // WebSocketServer сам вызовет событие 'connection', которое мы обработали выше
+        console.log(`[WS-SERVER] ✅ WebSocket upgrade completed for ${pathname}`)
+        wss!.emit('connection', ws, req)
+      })
+      return
+    }
+
+    // Обрабатываем /egress/audio endpoint
+    if (pathname.startsWith('/egress/audio')) {
+      if (!egressWss) {
+        console.error('[WS-SERVER] Egress WebSocketServer not initialized')
+        socket.write('HTTP/1.1 500 Internal Server Error\r\n\r\n')
+        socket.destroy()
+        return
+      }
+
+      console.log(`[WS-SERVER] Forwarding upgrade to Egress WebSocketServer for ${pathname}`)
+
+      egressWss.handleUpgrade(req, socket, head, (ws) => {
+        console.log(`[WS-SERVER] ✅ Egress WebSocket upgrade completed for ${pathname}`)
+        egressWss!.emit('connection', ws, req)
+      })
+      return
+    }
+
+    // Если путь не подошел ни одному WebSocketServer, закрываем соединение
+    console.warn(`[WS-SERVER] ⚠️ Upgrade request for unknown path: ${pathname}`)
+    socket.write('HTTP/1.1 404 Not Found\r\n\r\n')
     socket.destroy()
-    return
-  }
-  
-  // WebSocketServer автоматически обработает upgrade для /api/realtime/transcribe
-  // и для /egress/audio/* через свои внутренние обработчики
-  // НЕ блокируем запросы - пусть WebSocketServer сам решает
-})
+  })
+}
 
 server.on('error', (error: any) => {
   if (error.code === 'EADDRINUSE') {
@@ -394,7 +431,7 @@ server.on('error', (error: any) => {
 // В режиме RTMP-only запускаем только RTMP сервер, без HTTP
 if (SERVER_MODE === 'rtmp') {
   console.log(`[WS-SERVER] ✅ Server running in RTMP-only mode`)
-  
+
   try {
     await startGlobalRTMPServer()
     console.log(`[WS-SERVER] ✅ RTMP server started on port ${RTMP_PORT}`)
@@ -406,7 +443,7 @@ if (SERVER_MODE === 'rtmp') {
     console.error(`[WS-SERVER] ❌ RTMP server failed to start in RTMP-only mode. Exiting.`)
     process.exit(1)
   }
-  
+
   // Graceful shutdown для RTMP режима
   process.on('SIGTERM', async () => {
     console.log('[WS-SERVER] SIGTERM received, shutting down gracefully...')
@@ -417,12 +454,12 @@ if (SERVER_MODE === 'rtmp') {
   server.listen(port, '0.0.0.0', async () => {
     const serverMode = SERVER_MODE || 'both'
     console.log(`[WS-SERVER] ✅ Server running in mode: ${serverMode}`)
-    
-    console.log(`[WS-SERVER] ✅ WebSocket server running on port ${port}`)
+
+    console.log(`[WS-SERVER] ✅ HTTP/WebSocket server running on port ${port}`)
     console.log(`[WS-SERVER] Metrics endpoint: http://0.0.0.0:${port}/metrics`)
     console.log(`[WS-SERVER] Health check: http://0.0.0.0:${port}/health`)
     console.log(`[WS-SERVER] WebSocket endpoint: ws://0.0.0.0:${port}/api/realtime/transcribe`)
-    
+
     // Запускаем глобальный RTMP сервер в зависимости от режима
     if (SERVER_MODE === 'ws') {
       // WebSocket-only режим: RTMP сервер не запускается
@@ -449,24 +486,13 @@ if (SERVER_MODE === 'rtmp') {
         }
       }
     }
-    
-    // Graceful shutdown
-    process.on('SIGTERM', async () => {
-      console.log('[WS-SERVER] SIGTERM received, shutting down gracefully...')
-      await flushAllPending()
-      stopFlushTimer()
-      server.close(() => {
-        console.log('[WS-SERVER] HTTP server closed')
-        process.exit(0)
-      })
-    })
   })
 }
 
 // Graceful shutdown: записываем все pending транскрипты перед завершением
 const gracefulShutdown = async (signal: string) => {
   console.log(`[WS-SERVER] Received ${signal}, starting graceful shutdown...`)
-  
+
   // Закрываем WebSocket серверы (если они были созданы)
   if (wss) {
     wss.close(() => {
@@ -478,12 +504,12 @@ const gracefulShutdown = async (signal: string) => {
       console.log('[WS-SERVER] Egress WebSocket server closed')
     })
   }
-  
+
   // Закрываем HTTP сервер
   server.close(() => {
     console.log('[WS-SERVER] HTTP server closed')
   })
-  
+
   // Останавливаем batch-таймер и записываем все pending транскрипты
   try {
     stopFlushTimer()
@@ -492,7 +518,7 @@ const gracefulShutdown = async (signal: string) => {
   } catch (error) {
     console.error('[WS-SERVER] Error flushing pending transcripts:', error)
   }
-  
+
   // Даем время на завершение операций (максимум 10 секунд)
   setTimeout(() => {
     console.log('[WS-SERVER] Graceful shutdown completed')
@@ -502,4 +528,3 @@ const gracefulShutdown = async (signal: string) => {
 
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'))
 process.on('SIGINT', () => gracefulShutdown('SIGINT'))
-

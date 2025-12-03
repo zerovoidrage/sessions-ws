@@ -21,22 +21,24 @@ const sessionClients = new Map<string, Set<WebSocket>>()
 /**
  * Регистрирует клиента для сессии.
  */
-function registerClientForSession(sessionSlug: string, ws: WebSocket): void {
+export function registerClientForSession(sessionSlug: string, ws: WebSocket): void {
   if (!sessionClients.has(sessionSlug)) {
     sessionClients.set(sessionSlug, new Set())
   }
   sessionClients.get(sessionSlug)!.add(ws)
-  
-  // Удаляем клиента при отключении
-  ws.on('close', () => {
-    const clients = sessionClients.get(sessionSlug)
-    if (clients) {
-      clients.delete(ws)
-      if (clients.size === 0) {
-        sessionClients.delete(sessionSlug)
-      }
+}
+
+/**
+ * Отменяет регистрацию клиента для сессии.
+ */
+export function unregisterClient(sessionSlug: string, ws: WebSocket): void {
+  const clients = sessionClients.get(sessionSlug)
+  if (clients) {
+    clients.delete(ws)
+    if (clients.size === 0) {
+      sessionClients.delete(sessionSlug)
     }
-  })
+  }
 }
 
 /**

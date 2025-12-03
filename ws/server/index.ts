@@ -6,7 +6,18 @@ import { getQueueMetrics, flushAllPending, stopFlushTimer } from './transcript-b
 import { startGlobalRTMPServer } from './rtmp-server.js'
 
 // Render использует переменную PORT, но можем использовать WS_PORT как fallback
-const PORT = process.env.PORT || process.env.WS_PORT || 3001
+// ВАЖНО: PORT не должен быть равен RTMP_PORT (1935)
+// Railway автоматически устанавливает PORT, но если он равен 1935, это неправильная конфигурация
+const RTMP_PORT = parseInt(process.env.RTMP_PORT || '1935', 10)
+const PORT = (() => {
+  const port = Number(process.env.PORT || process.env.WS_PORT || 3001)
+  if (port === RTMP_PORT) {
+    console.error(`[WS-SERVER] ⚠️ PORT=${port} (RTMP port). HTTP/WebSocket server will listen on this port.`)
+    console.error(`[WS-SERVER] ⚠️ RTMP server will not be able to start on port ${RTMP_PORT}.`)
+    console.error(`[WS-SERVER] ⚠️ To fix: In Railway Settings → Networking, set HTTP/WebSocket port to DEFAULT, and add separate TCP proxy on port ${RTMP_PORT} for RTMP.`)
+  }
+  return port
+})()
 
 // Создаем HTTP сервер для WebSocket upgrade
 const server = http.createServer()
@@ -192,17 +203,25 @@ egressWss.on('connection', (ws, req: http.IncomingMessage) => {
 })
 
 server.listen(PORT, async () => {
-  console.log(`[WS-SERVER] WebSocket server listening on port ${PORT}`)
+  console.log(`[WS-SERVER] ✅ WebSocket server running on port ${PORT}`)
   console.log(`[WS-SERVER] Metrics endpoint: http://localhost:${PORT}/metrics`)
   console.log(`[WS-SERVER] Health check: http://localhost:${PORT}/health`)
+  console.log(`[WS-SERVER] WebSocket endpoint: ws://localhost:${PORT}/api/realtime/transcribe`)
   
   // Запускаем глобальный RTMP сервер для Room Composite Egress
-  try {
-    await startGlobalRTMPServer()
-    console.log(`[WS-SERVER] ✅ RTMP server started for Room Composite Egress`)
-  } catch (error) {
-    console.error(`[WS-SERVER] Failed to start RTMP server:`, error)
-    console.warn(`[WS-SERVER] Room Composite Egress transcription will not work without RTMP server`)
+  // Проверяем, что RTMP порт не занят HTTP/WebSocket сервером
+  if (PORT === RTMP_PORT) {
+    console.error(`[WS-SERVER] ⚠️ Skipping RTMP server startup: PORT=${PORT} (HTTP/WebSocket server is already using this port)`)
+    console.error(`[WS-SERVER] ⚠️ Room Composite Egress transcription will not work.`)
+    console.error(`[WS-SERVER] ⚠️ To fix: In Railway Settings → Networking, set HTTP/WebSocket port to DEFAULT, and add separate TCP proxy on port ${RTMP_PORT} for RTMP.`)
+  } else {
+    try {
+      await startGlobalRTMPServer()
+      console.log(`[WS-SERVER] ✅ RTMP server started for Room Composite Egress`)
+    } catch (error) {
+      console.error(`[WS-SERVER] Failed to start RTMP server:`, error)
+      console.warn(`[WS-SERVER] Room Composite Egress transcription will not work without RTMP server`)
+    }
   }
 })
 

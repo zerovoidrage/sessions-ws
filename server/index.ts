@@ -8,17 +8,13 @@ import { startGlobalRTMPServer } from './rtmp-server.js'
 // Используем PORT из окружения (Railway автоматически устанавливает его)
 // Fallback на 3001 только для локальной разработки
 const RTMP_PORT = parseInt(process.env.RTMP_PORT || '1936', 10)
-const WS_PORT = process.env.WS_PORT ? Number(process.env.WS_PORT) : undefined
-const envPort = Number(process.env.PORT) || 3001
-
-// Приоритет: WS_PORT > PORT > 3001
-const port = WS_PORT || envPort
+const envPort = Number(process.env.PORT)
+const port = Number.isFinite(envPort) ? Number(envPort) : 3001
 
 // Логируем конфигурацию портов для отладки
 console.log(`[WS-SERVER] Port configuration:`, {
   RTMP_PORT,
-  WS_PORT: WS_PORT || '(not set)',
-  envPORT: envPort,
+  envPORT: envPort || '(not set)',
   finalPORT: port,
 })
 
@@ -322,7 +318,7 @@ server.on('error', (error: any) => {
     console.error(`[WS-SERVER] ❌ Port ${port} is already in use!`)
     console.error(`[WS-SERVER] To fix:`)
     console.error(`[WS-SERVER]   1. Kill the process using port ${port}: lsof -ti:${port} | xargs kill`)
-    console.error(`[WS-SERVER]   2. Or use a different port: WS_PORT=3002 npm run dev`)
+    console.error(`[WS-SERVER]   2. Or start dev server on another port: PORT=3002 npm run dev`)
     process.exit(1)
   } else {
     console.error(`[WS-SERVER] ❌ Server error:`, error)
@@ -342,7 +338,7 @@ server.listen(port, async () => {
   if (port === RTMP_PORT) {
     console.error(`[WS-SERVER] ⚠️ Skipping RTMP server startup: HTTP/WebSocket server is already using port ${RTMP_PORT}`)
     console.error(`[WS-SERVER] ⚠️ Room Composite Egress transcription will not work.`)
-    console.error(`[WS-SERVER] ⚠️ Solution: Add WS_PORT=8000 to Railway Variables to force HTTP/WebSocket on port 8000.`)
+    console.error(`[WS-SERVER] ⚠️ Solution: Set a different RTMP_PORT (e.g. 1936) so HTTP/WebSocket can keep Railway-assigned PORT.`)
   } else {
     try {
       await startGlobalRTMPServer()

@@ -7,13 +7,13 @@ cd "$(dirname "$0")"
 echo "🚀 Пушим обновления в GitHub..."
 
 git add server/index.ts
-git commit -m "fix: ignore PORT=1935 from Railway auto-detection, use WS_PORT or fallback to 3001"
+git commit -m "fix: rely on Railway PORT and remove WS_PORT fallback"
 git push origin main
 
 echo "✅ Готово! Railway начнёт новый деплой."
 echo ""
-echo "📝 Добавь в Railway Variables:"
-echo "   WS_PORT=8000"
+echo "📝 Проверь Railway:"
+echo "   - нет переменных PORT / WS_PORT"
+echo "   - Public Networking → Port = Default / Auto-detect"
+echo "   - TCP proxy для RTMP остаётся на 1936"
 echo ""
-echo "Это гарантирует, что HTTP/WebSocket будет слушать на 8000, даже если Railway установит PORT=1935"
-

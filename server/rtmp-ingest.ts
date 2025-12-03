@@ -46,6 +46,10 @@ class RTMPIngestImpl extends EventEmitter implements RTMPIngest {
   private streamHandler: RTMPStreamHandler
   private audioBytesSent = 0 // Счетчик байт для логирования
   private audioMetricsInterval: NodeJS.Timeout | null = null
+  // Состояние для ретраев FFmpeg
+  private ffmpegRestartAttempts = 0
+  private readonly MAX_FFMPEG_RESTARTS = 3
+  private ffmpegStderrLines: string[] = []
 
   constructor(
     private config: RTMPIngestConfig
@@ -149,6 +153,10 @@ class RTMPIngestImpl extends EventEmitter implements RTMPIngest {
       return
     }
 
+    // При новом запуске сбрасываем накопленные строки и попытки
+    this.ffmpegRestartAttempts = 0
+    this.ffmpegStderrLines = []
+
     // Проверяем наличие FFmpeg перед запуском
     try {
       const { execSync } = await import('child_process')
@@ -166,12 +174,13 @@ class RTMPIngestImpl extends EventEmitter implements RTMPIngest {
     // FFmpeg команда для декодирования RTMP → PCM16 16kHz mono
     // Low-latency флаги для минимизации буферизации (умеренные, чтобы не ломать RTMP)
     const ffmpegArgs = [
-      // Low-latency флаги для RTMP (умеренные, чтобы не вызывать ошибки)
+      // Low-latency флаги для RTMP
       '-fflags', 'nobuffer', // Отключаем буферизацию
       '-flags', 'low_delay', // Минимальная задержка
       '-rtmp_live', 'live', // Режим live streaming
-      '-probesize', '32', // Минимальный размер probe (быстрый старт)
-      '-analyzeduration', '100000', // Минимальный анализ (100ms вместо 0, чтобы не ломать RTMP)
+      // Чуть более безопасные значения анализа потока
+      '-probesize', '4096', // вместо 32 — всё ещё low latency, но стабильнее
+      '-analyzeduration', '100000', // ~100ms анализа
       // Reconnect флаги для стабильности
       '-reconnect', '1',
       '-reconnect_streamed', '1',
@@ -234,6 +243,18 @@ class RTMPIngestImpl extends EventEmitter implements RTMPIngest {
           const chunkToSend = audioBuffer.slice(0, OPTIMAL_CHUNK_SIZE)
           audioBuffer = audioBuffer.slice(OPTIMAL_CHUNK_SIZE)
           
+          // Логируем отправку аудио чанка (периодически для метрик)
+          const audioChunkSentAt = Date.now()
+          if (Math.random() < 0.01) { // 1% логов
+            console.log('[RTMPIngest] 🎤 Audio chunk sent to Gladia', {
+              sessionSlug: this.config.sessionSlug,
+              chunkSize: chunkToSend.length,
+              audioDurationMs: (chunkToSend.length / 2 / 16000) * 1000, // bytes / 2 / sampleRate * 1000
+              timestamp: audioChunkSentAt,
+              timestampISO: new Date(audioChunkSentAt).toISOString(),
+            })
+          }
+          
           this.gladiaBridge.sendAudio(chunkToSend)
           lastFlushTime = now
         }
@@ -250,6 +271,16 @@ class RTMPIngestImpl extends EventEmitter implements RTMPIngest {
     this.ffmpegProcess.stderr.on('data', (data: Buffer) => {
       // Логируем сообщения FFmpeg
       const message = data.toString()
+      
+      // Копим последние 10 строк stderr для дебага
+      const lines = message.split('\n').map(l => l.trim()).filter(Boolean)
+      for (const line of lines) {
+        this.ffmpegStderrLines.push(line)
+        if (this.ffmpegStderrLines.length > 10) {
+          this.ffmpegStderrLines.shift()
+        }
+      }
+      
       // FFmpeg пишет в stderr даже обычные сообщения
       if (message.includes('Stream #0') || message.includes('Audio:')) {
         console.log(`[RTMPIngest] FFmpeg info:`, {
@@ -257,7 +288,7 @@ class RTMPIngestImpl extends EventEmitter implements RTMPIngest {
           sessionSlug: this.config.sessionSlug,
           message: message.trim(),
         })
-      } else if (message.includes('error') || message.includes('Error') || message.includes('failed')) {
+      } else if (message.toLowerCase().includes('error') || message.toLowerCase().includes('failed')) {
         console.error(`[RTMPIngest] FFmpeg error:`, {
           sessionId: this.config.sessionId,
           sessionSlug: this.config.sessionSlug,
@@ -293,32 +324,65 @@ class RTMPIngestImpl extends EventEmitter implements RTMPIngest {
         sessionSlug: this.config.sessionSlug,
         exitCode: code,
         signal: signal,
-        // Коды выхода FFmpeg:
-        // 0 = успешное завершение
-        // 1 = ошибка
-        // 255 = прервано пользователем или разрыв соединения (может быть нормальным)
       })
       
       this.ffmpegProcess = null
       this.stopAudioMetrics()
       
-      // Логируем ошибку только если это не нормальное завершение
-      // Код 1 может быть нормальным при разрыве соединения или если поток еще не готов
-      if (code !== 0 && code !== null && code !== 255 && code !== 1) {
-        console.error(`[RTMPIngest] FFmpeg exited with error code ${code}`, {
+      // Если FFmpeg упал с кодом 1 — это часто "поток ещё не готов" или временная ошибка
+      if (code === 1) {
+        console.warn(`[RTMPIngest] FFmpeg exited with code 1 (stream may not be ready yet)`, {
           sessionId: this.config.sessionId,
           sessionSlug: this.config.sessionSlug,
+          lastStderrLines: this.ffmpegStderrLines,
+          restartAttempts: this.ffmpegRestartAttempts,
         })
-        // Не бросаем ошибку для кода 1 - это может быть временная проблема с подключением
-        // this.emit('error', new Error(`FFmpeg exited with code ${code}`))
-      } else if (code === 1) {
-        // Код 1 - обычно означает проблему с подключением или потоком
-        // Логируем, но не падаем - возможно поток еще не готов
-        console.warn(`[RTMPIngest] FFmpeg exited with code 1 (may be normal if stream not ready)`, {
-          sessionId: this.config.sessionId,
-          sessionSlug: this.config.sessionSlug,
-        })
+        
+        // Авторетрай, если сессия ещё активна и кол-во попыток не превышено
+        if (this.isActiveFlag && this.ffmpegRestartAttempts < this.MAX_FFMPEG_RESTARTS) {
+          const attempt = ++this.ffmpegRestartAttempts
+          const delayMs = 1000
+          
+          console.warn(`[RTMPIngest] Scheduling FFmpeg restart (attempt ${attempt}/${this.MAX_FFMPEG_RESTARTS}) in ${delayMs}ms`, {
+            sessionId: this.config.sessionId,
+            sessionSlug: this.config.sessionSlug,
+          })
+          
+          setTimeout(() => {
+            // Защита: перезапуск только если сессия всё ещё активна и процесс не был запущен заново
+            if (this.isActiveFlag && !this.ffmpegProcess) {
+              this.startFFmpegDecoder().catch((error) => {
+                console.error(`[RTMPIngest] Failed to restart FFmpeg decoder`, {
+                  sessionId: this.config.sessionId,
+                  sessionSlug: this.config.sessionSlug,
+                  error: error.message,
+                })
+              })
+            }
+          }, delayMs)
+        }
+        
+        return
       }
+      
+      // Остальные не-фатальные коды (0, 255) — просто логируем
+      if (code === 0 || code === 255 || code === null) {
+        console.log(`[RTMPIngest] FFmpeg exited gracefully`, {
+          sessionId: this.config.sessionId,
+          sessionSlug: this.config.sessionSlug,
+          exitCode: code,
+        })
+        return
+      }
+      
+      // Всё остальное — реально ошибка
+      console.error(`[RTMPIngest] FFmpeg exited with unexpected error code`, {
+        sessionId: this.config.sessionId,
+        sessionSlug: this.config.sessionSlug,
+        exitCode: code,
+        signal,
+        lastStderrLines: this.ffmpegStderrLines,
+      })
     })
   }
 
@@ -347,11 +411,13 @@ class RTMPIngestImpl extends EventEmitter implements RTMPIngest {
           sessionId: this.config.sessionId,
           error,
         })
-      }
-      
-      this.ffmpegProcess = null
-      this.stopAudioMetrics()
     }
+    
+    this.ffmpegProcess = null
+    this.stopAudioMetrics()
+    this.ffmpegRestartAttempts = 0
+    this.ffmpegStderrLines = []
+  }
   }
 
   private startAudioMetrics(): void {
@@ -539,8 +605,13 @@ class RTMPIngestImpl extends EventEmitter implements RTMPIngest {
     const speakerIdentity = activeSpeaker?.identity || event.speakerId || 'room'
     const speakerName = activeSpeaker?.name || event.speakerName || 'Meeting'
 
-    // Логируем получение транскрипта от Gladia с timestamp
-    console.log('[RTMPIngest] Received transcript from Gladia', {
+    // Вычисляем задержку обработки в Gladia (если есть receivedAt от Gladia Bridge)
+    const gladiaProcessingTime = event.receivedAt 
+      ? transcriptReceivedAt - event.receivedAt 
+      : null
+
+    // Логируем получение транскрипта от Gladia с детальными метриками
+    console.log('[RTMPIngest] 📨 Received transcript from Gladia', {
       sessionId: this.config.sessionId,
       sessionSlug: this.config.sessionSlug,
       textPreview: event.text.slice(0, 80),
@@ -551,6 +622,10 @@ class RTMPIngestImpl extends EventEmitter implements RTMPIngest {
       gladiaSpeakerId: event.speakerId,
       timestamp: transcriptReceivedAt,
       timestampISO: new Date(transcriptReceivedAt).toISOString(),
+      // Метрики задержек
+      gladiaProcessingTimeMs: gladiaProcessingTime, // Время обработки в Gladia (если доступно)
+      startedAt: event.startedAt?.toISOString(),
+      endedAt: event.endedAt?.toISOString(),
     })
 
     // Формируем payload для broadcast endpoint
@@ -569,17 +644,28 @@ class RTMPIngestImpl extends EventEmitter implements RTMPIngest {
     this.sendTranscriptToWebSocketServer(this.config.sessionSlug, broadcastBody)
       .then(() => {
         const sendCompleteAt = Date.now()
-        const sendLatency = sendCompleteAt - sendStartAt
-        const totalLatency = sendCompleteAt - transcriptReceivedAt
+        const httpLatency = sendCompleteAt - sendStartAt
+        const totalLatencyFromGladia = sendCompleteAt - transcriptReceivedAt
+        const totalLatencyFromStart = event.startedAt 
+          ? sendCompleteAt - event.startedAt.getTime()
+          : null
         
-        // Логируем задержку доставки (только для финальных транскриптов или периодически)
-        if (event.isFinal || Math.random() < 0.1) { // 10% логов для interim
-          console.log('[RTMPIngest] Transcript delivery latency', {
+        // Детальные метрики задержек для анализа производительности
+        // Логируем для всех финальных транскриптов и 10% interim
+        if (event.isFinal || Math.random() < 0.1) {
+          console.log('[RTMPIngest] ⏱️ Transcript delivery metrics', {
             sessionSlug: this.config.sessionSlug,
             isFinal: event.isFinal,
-            httpLatencyMs: sendLatency,
-            totalLatencyFromGladiaMs: totalLatency,
+            utteranceId: event.utteranceId,
             textPreview: event.text.slice(0, 50),
+            // Задержки по этапам
+            httpPostLatencyMs: httpLatency, // RTMP сервис → WebSocket сервис (HTTP POST)
+            gladiaToRtmpLatencyMs: totalLatencyFromGladia, // Gladia → RTMP сервис (обработка)
+            totalLatencyFromSpeechMs: totalLatencyFromStart, // От начала речи до доставки (если доступно)
+            // Timestamps для анализа
+            transcriptReceivedAt: new Date(transcriptReceivedAt).toISOString(),
+            httpPostStartAt: new Date(sendStartAt).toISOString(),
+            httpPostCompleteAt: new Date(sendCompleteAt).toISOString(),
           })
         }
       })

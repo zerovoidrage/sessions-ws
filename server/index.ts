@@ -7,6 +7,7 @@ import { startGlobalRTMPServer } from './rtmp-server.js'
 import { handleTranscripts } from './transcripts.js'
 import { handleBroadcast } from './broadcast.js'
 import { initWebSocketConnection, validateTokenAndSession } from './ws-handlers.js'
+import { isTestBroadcastEnabled } from './env.js'
 
 // Режим работы сервера: 'ws' (WebSocket только), 'rtmp' (RTMP только), или undefined (оба - для обратной совместимости)
 const SERVER_MODE = process.env.SERVER_MODE // 'ws' | 'rtmp' | undefined
@@ -123,6 +124,20 @@ const server = http.createServer(async (req, res) => {
           console.error(`[WS-SERVER] Missing sessionId or sessionSlug in request`)
           res.statusCode = 400
           res.end(JSON.stringify({ error: 'Missing sessionId or sessionSlug' }))
+          return
+        }
+
+        // Проверка тестового режима
+        const testMode = isTestBroadcastEnabled()
+        if (testMode) {
+          console.log('[WS-SERVER] Test mode enabled – skipping real LiveKit transcription start', {
+            sessionId,
+            sessionSlug,
+          })
+
+          res.statusCode = 200
+          res.setHeader('Content-Type', 'application/json')
+          res.end(JSON.stringify({ ok: true, success: true, mode: 'test-broadcast-only', sessionId, message: 'Test mode: transcription start skipped' }))
           return
         }
 

@@ -60,9 +60,10 @@ export async function finalizeSessionTranscript(
 
   const body = JSON.stringify(payload, null, 2)
   const blobPath = `transcripts/${session.id}.json`
+  const sizeBytes = Buffer.byteLength(body, 'utf8')
 
   // 3. Сохраняем в Vercel Blob
-  const { url, size } = await put(blobPath, body, {
+  const { url } = await put(blobPath, body, {
     access: 'private', // Приватный доступ (требует авторизации для чтения)
     contentType: 'application/json',
   })
@@ -72,14 +73,14 @@ export async function finalizeSessionTranscript(
     where: { id: session.id },
     data: {
       rawTranscriptBlobUrl: url,
-      rawTranscriptSizeBytes: size,
+      rawTranscriptSizeBytes: sizeBytes,
       rawTranscriptReadyAt: new Date(),
     },
   })
 
   return {
     blobUrl: url,
-    sizeBytes: size,
+    sizeBytes: sizeBytes,
     segmentsCount: session.transcripts.length,
   }
 }

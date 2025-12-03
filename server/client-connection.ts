@@ -163,15 +163,20 @@ export function handleClientConnection({ ws, req }: ClientConnectionOptions): vo
   registerClientForSession(sessionSlug, ws)
 
   // Отправляем initial message клиенту, чтобы подтвердить успешное подключение
-  try {
-    ws.send(JSON.stringify({
-      type: 'connected',
-      sessionSlug,
-      message: 'WebSocket connection established',
-    }))
-  } catch (error) {
-    console.error('[WS-SERVER] Failed to send initial message:', error)
-  }
+  // ВАЖНО: Добавляем небольшую задержку для Railway Proxy (даём время завершить WebSocket upgrade)
+  setTimeout(() => {
+    if (ws.readyState === WebSocket.OPEN) {
+      try {
+        ws.send(JSON.stringify({
+          type: 'connected',
+          sessionSlug,
+          message: 'WebSocket connection established',
+        }))
+      } catch (error) {
+        console.error('[WS-SERVER] Failed to send initial message:', error)
+      }
+    }
+  }, 100) // 100ms задержка для Railway Proxy
 
   // Настраиваем ping/pong для поддержания соединения живым
   const pingInterval = setInterval(() => {

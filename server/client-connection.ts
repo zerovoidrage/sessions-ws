@@ -15,17 +15,39 @@ import { updateActiveSpeaker, type ActiveSpeakerEvent } from './active-speaker-t
 
 dotenv.config()
 
+import type { WsClientMeta } from './types.js'
+
 // Хранилище клиентов по сессиям для отправки транскриптов от серверной транскрипции
-const sessionClients = new Map<string, Set<WebSocket>>()
+// Используем Map<sessionSlug, Set<WsClientMeta>> для хранения метаданных о клиентах
+const sessionClients = new Map<string, Set<WsClientMeta>>()
 
 /**
- * Регистрирует клиента для сессии.
+ * Регистрирует клиента для сессии с метаданными.
  */
-export function registerClientForSession(sessionSlug: string, ws: WebSocket): void {
+export function registerClientForSession(
+  sessionSlug: string,
+  ws: WebSocket,
+  meta?: { userId?: string }
+): void {
   if (!sessionClients.has(sessionSlug)) {
     sessionClients.set(sessionSlug, new Set())
   }
-  sessionClients.get(sessionSlug)!.add(ws)
+  
+  const clientMeta: WsClientMeta = {
+    ws,
+    sessionSlug,
+    userId: meta?.userId,
+    connectedAt: Date.now(),
+  }
+  
+  const clients = sessionClients.get(sessionSlug)!
+  clients.add(clientMeta)
+  
+  console.log('[WS-SERVER] Client registered', {
+    sessionSlug,
+    userId: meta?.userId,
+    activeClientsInSession: clients.size,
+  })
 }
 
 /**
@@ -34,11 +56,33 @@ export function registerClientForSession(sessionSlug: string, ws: WebSocket): vo
 export function unregisterClient(sessionSlug: string, ws: WebSocket): void {
   const clients = sessionClients.get(sessionSlug)
   if (clients) {
-    clients.delete(ws)
+    // Находим клиента по WebSocket и удаляем
+    for (const clientMeta of clients) {
+      if (clientMeta.ws === ws) {
+        clients.delete(clientMeta)
+        break
+      }
+    }
+    
     if (clients.size === 0) {
       sessionClients.delete(sessionSlug)
+      console.log('[WS-SERVER] Session has no more clients, removed from registry', {
+        sessionSlug,
+      })
+    } else {
+      console.log('[WS-SERVER] Client unregistered', {
+        sessionSlug,
+        remainingClientsInSession: clients.size,
+      })
     }
   }
+}
+
+/**
+ * Получает всех клиентов для сессии.
+ */
+export function getClientsForSession(sessionSlug: string): Set<WsClientMeta> | undefined {
+  return sessionClients.get(sessionSlug)
 }
 
 /**
@@ -47,25 +91,39 @@ export function unregisterClient(sessionSlug: string, ws: WebSocket): void {
 export function broadcastToSessionClients(sessionSlug: string, payload: any): void {
   const clients = sessionClients.get(sessionSlug)
   if (!clients || clients.size === 0) {
+    console.log('[WS-SERVER] No clients to broadcast transcript', {
+      sessionSlug,
+      textPreview: payload.text ? payload.text.slice(0, 80) : 'no text',
+    })
     return
   }
 
   const message = JSON.stringify(payload)
   let sentCount = 0
   
-  for (const ws of clients) {
-    if (ws.readyState === WebSocket.OPEN) {
+  for (const clientMeta of clients) {
+    if (clientMeta.ws.readyState === WebSocket.OPEN) {
       try {
-        ws.send(message)
+        clientMeta.ws.send(message)
         sentCount++
       } catch (error) {
-        console.error('[WS-SERVER] Failed to send transcript to client:', error)
+        console.error('[WS-SERVER] Failed to send transcript to client:', {
+          sessionSlug,
+          userId: clientMeta.userId,
+          error,
+        })
       }
     }
   }
   
   if (sentCount > 0) {
     incrementMessagesSent()
+    console.log('[WS-SERVER] Broadcast transcript', {
+      sessionSlug,
+      textPreview: payload.text ? payload.text.slice(0, 80) : 'no text',
+      clientsInSession: clients.size,
+      sent: sentCount,
+    })
   }
 }
 

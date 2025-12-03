@@ -216,52 +216,103 @@ class RTMPIngestImpl extends EventEmitter implements RTMPIngest {
     }
   }
 
-  private async sendTranscriptToWebSocketServer(sessionSlug: string, payload: any): Promise<void> {
-    // Если WS_SERVER_URL не установлен, используем in-memory broadcast (для обратной совместимости)
-    const wsServerUrl = process.env.WS_SERVER_URL
-    if (!wsServerUrl) {
+  private async sendTranscriptToWebSocketServer(
+    sessionSlug: string,
+    broadcastBody: {
+      sessionSlug: string
+      utteranceId: string
+      text: string
+      isFinal: boolean
+      speaker?: string
+      speakerId?: string
+      ts?: number
+    }
+  ): Promise<void> {
+    // Определяем URL WebSocket сервера для broadcast
+    // Используем WS_BASE_URL или WS_SERVER_URL (для обратной совместимости)
+    const wsBaseUrl = process.env.WS_BASE_URL || process.env.WS_SERVER_URL
+    if (!wsBaseUrl) {
       // Fallback: in-memory broadcast (если оба сервиса в одном процессе)
+      console.log('[GladiaBridge] WS_BASE_URL not set, using in-memory broadcast', {
+        sessionSlug,
+      })
+      // Конвертируем broadcastBody в формат для in-memory broadcast
+      const payload: any = {
+        type: 'transcript',
+        sessionSlug: broadcastBody.sessionSlug,
+        utteranceId: broadcastBody.utteranceId,
+        text: broadcastBody.text,
+        isFinal: broadcastBody.isFinal,
+        speaker: broadcastBody.speaker,
+        speakerId: broadcastBody.speakerId,
+        ts: broadcastBody.ts,
+      }
       broadcastToSessionClients(sessionSlug, payload)
       return
     }
 
-    // Отправляем транскрипт в WebSocket сервер через HTTP
-    const rtmpServerSecret = process.env.RTMP_SERVER_SECRET
-    if (!rtmpServerSecret) {
-      console.warn('[RTMPIngest] RTMP_SERVER_SECRET not set, falling back to in-memory broadcast')
-      broadcastToSessionClients(sessionSlug, payload)
-      return
-    }
-
-    const postData = JSON.stringify({ sessionSlug, ...payload })
+    const postData = JSON.stringify(broadcastBody)
 
     try {
-      const url = new URL(wsServerUrl)
+      const url = new URL(wsBaseUrl)
+      // Используем новый endpoint для broadcast
+      const broadcastPath = '/api/realtime/transcribe/broadcast'
       const options = {
         hostname: url.hostname,
         port: url.port || (url.protocol === 'https:' ? 443 : 80),
-        path: '/api/transcripts',
+        path: broadcastPath,
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Content-Length': Buffer.byteLength(postData),
-          'Authorization': `Bearer ${rtmpServerSecret}`,
         },
         protocol: url.protocol,
       }
 
       return new Promise<void>((resolve, reject) => {
         const req = http.request(options, (res) => {
-          if (res.statusCode === 200) {
-            resolve()
-          } else {
-            console.error(`[RTMPIngest] Failed to send transcript: ${res.statusCode}`)
-            reject(new Error(`HTTP ${res.statusCode}`))
-          }
+          let responseData = ''
+          res.on('data', (chunk) => {
+            responseData += chunk.toString()
+          })
+
+          res.on('end', () => {
+            if (res.statusCode === 200) {
+              try {
+                const response = JSON.parse(responseData)
+                console.log('[GladiaBridge] Posted transcript to WS broadcast', {
+                  sessionSlug,
+                  status: res.statusCode,
+                  sent: response.sent || 0,
+                  textPreview: broadcastBody.text.slice(0, 80),
+                })
+                resolve()
+              } catch (parseError) {
+                console.warn('[GladiaBridge] Failed to parse broadcast response', {
+                  sessionSlug,
+                  responseData,
+                })
+                resolve() // Все равно считаем успешным, если статус 200
+              }
+            } else {
+              console.error('[GladiaBridge] Failed to post transcript to WS broadcast', {
+                sessionSlug,
+                status: res.statusCode,
+                statusText: res.statusMessage,
+                responseData,
+                textPreview: broadcastBody.text.slice(0, 80),
+              })
+              reject(new Error(`HTTP ${res.statusCode}: ${res.statusMessage}`))
+            }
+          })
         })
 
         req.on('error', (error) => {
-          console.error(`[RTMPIngest] Error sending transcript to WS server:`, error)
+          console.error('[GladiaBridge] Error posting transcript to WS broadcast', {
+            sessionSlug,
+            error,
+            textPreview: broadcastBody.text.slice(0, 80),
+          })
           reject(error)
         })
 
@@ -269,33 +320,52 @@ class RTMPIngestImpl extends EventEmitter implements RTMPIngest {
         req.end()
       })
     } catch (error) {
-      console.error('[RTMPIngest] Failed to send transcript to WS server:', error)
-      // Fallback на in-memory broadcast при ошибке
-      broadcastToSessionClients(sessionSlug, payload)
+      console.error('[GladiaBridge] Failed to post transcript to WS broadcast', {
+        sessionSlug,
+        error,
+        textPreview: broadcastBody.text.slice(0, 80),
+      })
+      // Не делаем fallback - просто логируем ошибку
+      throw error
     }
   }
 
   private handleTranscript(event: TranscriptEvent): void {
     if (!this.gladiaBridge) return
 
+    // Логируем получение транскрипта от Gladia
+    console.log('[GladiaBridge] Received transcript from Gladia', {
+      sessionSlug: this.config.sessionSlug,
+      textPreview: event.text.slice(0, 80),
+      isFinal: event.isFinal,
+      utteranceId: event.utteranceId,
+      speakerId: event.speakerId,
+      speakerName: event.speakerName,
+    })
+
     // Получаем текущего активного спикера для этой сессии
     const activeSpeaker = getActiveSpeaker(this.config.sessionSlug)
-    const speakerIdentity = activeSpeaker?.identity || 'room'
-    const speakerName = activeSpeaker?.name || 'Meeting'
+    const speakerIdentity = activeSpeaker?.identity || event.speakerId || 'room'
+    const speakerName = activeSpeaker?.name || event.speakerName || 'Meeting'
 
-    const payload = {
-      type: 'transcription',
-      speakerId: speakerIdentity,
-      speakerName: speakerName,
+    // Формируем payload для broadcast endpoint
+    const broadcastBody = {
+      sessionSlug: this.config.sessionSlug,
+      utteranceId: event.utteranceId,
       text: event.text,
-      is_final: event.isFinal, // Клиент ожидает snake_case
+      isFinal: event.isFinal,
+      speaker: speakerIdentity,
+      speakerId: speakerIdentity,
       ts: Date.now(),
-      utterance_id: event.utteranceId,
     }
 
-    // 1. Отправляем транскрипт в WebSocket сервер через HTTP (или in-memory если в одном процессе)
-    this.sendTranscriptToWebSocketServer(this.config.sessionSlug, payload).catch((error) => {
-      console.error('[RTMPIngest] Failed to send transcript to WS server:', error)
+    // Отправляем транскрипт в WebSocket сервер через HTTP broadcast endpoint
+    this.sendTranscriptToWebSocketServer(this.config.sessionSlug, broadcastBody).catch((error) => {
+      console.error('[GladiaBridge] Failed to post transcript to WS broadcast', {
+        sessionSlug: this.config.sessionSlug,
+        error,
+        textPreview: event.text.slice(0, 80),
+      })
     })
 
     // 2. Сохраняем финальные транскрипты в БД

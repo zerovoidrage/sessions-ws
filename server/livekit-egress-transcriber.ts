@@ -581,6 +581,16 @@ class EgressTranscriberImpl implements EgressTranscriber {
   private handleTranscript(event: TranscriptEvent): void {
     if (!this.gladiaBridge) return
 
+    // Логируем получение транскрипта от Gladia
+    console.log('[GladiaBridge] Received transcript from Gladia', {
+      sessionSlug: this.sessionSlug,
+      textPreview: event.text.slice(0, 80),
+      isFinal: event.isFinal,
+      utteranceId: event.utteranceId,
+      speakerId: event.speakerId,
+      speakerName: event.speakerName,
+    })
+
     // 1. Отправляем транскрипт всем клиентам через WebSocket
     // (используем механизм из client-connection.ts)
     this.broadcastTranscriptToClients(event)
@@ -619,9 +629,18 @@ class EgressTranscriberImpl implements EgressTranscriber {
         }
 
         broadcastToSessionClients(this.sessionSlug, payload)
+        console.log('[EgressTranscriber] Broadcast transcript to clients', {
+          sessionSlug: this.sessionSlug,
+          textPreview: event.text.slice(0, 80),
+          isFinal: event.isFinal,
+        })
       })
       .catch((error) => {
-        console.error('[EgressTranscriber] Failed to broadcast transcript to clients:', error)
+        console.error('[EgressTranscriber] Failed to broadcast transcript to clients:', {
+          sessionSlug: this.sessionSlug,
+          error,
+          textPreview: event.text.slice(0, 80),
+        })
       })
   }
 

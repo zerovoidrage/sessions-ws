@@ -5,6 +5,7 @@ import { getMetrics } from './metrics.js'
 import { getQueueMetrics, flushAllPending, stopFlushTimer } from './transcript-batch-queue.js'
 import { startGlobalRTMPServer } from './rtmp-server.js'
 import { handleTranscripts } from './transcripts.js'
+import { handleBroadcast } from './broadcast.js'
 import { initWebSocketConnection, validateTokenAndSession } from './ws-handlers.js'
 
 // Режим работы сервера: 'ws' (WebSocket только), 'rtmp' (RTMP только), или undefined (оба - для обратной совместимости)
@@ -87,6 +88,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   // API endpoint для приема транскриптов от RTMP сервера (межсервисная связь)
+  // Legacy endpoint - использует /api/realtime/transcribe/broadcast
   if (pathname === '/api/transcripts' && req.method === 'POST') {
     // Этот endpoint доступен только в режиме WebSocket сервера
     if (SERVER_MODE === 'rtmp') {
@@ -95,6 +97,17 @@ const server = http.createServer(async (req, res) => {
       return
     }
     return handleTranscripts(req, res)
+  }
+
+  // Новый endpoint для broadcast транскриптов (рекомендуемый)
+  if (pathname === '/api/realtime/transcribe/broadcast' && req.method === 'POST') {
+    // Этот endpoint доступен только в режиме WebSocket сервера
+    if (SERVER_MODE === 'rtmp') {
+      res.statusCode = 503
+      res.end(JSON.stringify({ error: 'This endpoint is not available in RTMP-only mode' }))
+      return
+    }
+    return handleBroadcast(req, res)
   }
 
   // API endpoint для запуска серверной транскрипции

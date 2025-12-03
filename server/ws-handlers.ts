@@ -12,6 +12,7 @@ import {
 } from './metrics.js'
 import { cleanupClientTracker } from './audio-validator.js'
 import { updateActiveSpeaker, type ActiveSpeakerEvent } from './active-speaker-tracker.js'
+import type { ServerTranscriptionMessage } from './types.js'
 
 export interface ClientInfo {
   sessionSlug?: string
@@ -35,7 +36,7 @@ export function initWebSocketConnection(
   const identity = clientInfo?.identity
   const participantIdentity = identity
 
-  console.log('[WS] New client connected', {
+  console.log('[WS-SERVER] Client connected', {
     sessionSlug,
     userId,
     identity,
@@ -47,7 +48,7 @@ export function initWebSocketConnection(
 
   // Регистрируем клиента для получения транскриптов от серверной транскрипции
   if (sessionSlug) {
-    registerClientForSession(sessionSlug, ws)
+    registerClientForSession(sessionSlug, ws, { userId })
   }
 
   // Отправляем initial message (строгий JSON)
@@ -133,9 +134,55 @@ export function initWebSocketConnection(
   // Увеличиваем счетчик активных соединений
   incrementConnections()
 
+  // Тестовый broadcast loop для отладки (если включен)
+  let testBroadcastInterval: NodeJS.Timeout | null = null
+  if (process.env.WS_ENABLE_TEST_BROADCAST === 'true') {
+    console.log('[WS] Test broadcast enabled, will send test transcripts every 5 seconds')
+    
+    testBroadcastInterval = setInterval(() => {
+      if (ws.readyState !== WebSocket.OPEN) {
+        if (testBroadcastInterval) {
+          clearInterval(testBroadcastInterval)
+          testBroadcastInterval = null
+        }
+        return
+      }
+
+      const testMessage: ServerTranscriptionMessage = {
+        type: 'transcript',
+        sessionSlug,
+        userId,
+        utteranceId: `test-${Date.now()}`,
+        text: 'Test message from WS server (fake transcript)',
+        isFinal: true,
+        ts: Date.now(),
+      }
+
+      console.log('[WS-SERVER] Sending test transcript', {
+        sessionSlug,
+        userId,
+        text: testMessage.text,
+      })
+
+      try {
+        ws.send(JSON.stringify(testMessage))
+      } catch (error) {
+        console.error('[WS-SERVER] Failed to send test transcript:', error)
+        if (testBroadcastInterval) {
+          clearInterval(testBroadcastInterval)
+          testBroadcastInterval = null
+        }
+      }
+    }, 5000) // Каждые 5 секунд
+  }
+
   // Обработчик закрытия соединения
   ws.on('close', (code, reason) => {
     clearInterval(pingInterval)
+    if (testBroadcastInterval) {
+      clearInterval(testBroadcastInterval)
+      testBroadcastInterval = null
+    }
 
     console.log('[WS] Client disconnected', {
       sessionSlug,
@@ -185,6 +232,10 @@ export function initWebSocketConnection(
     })
     recordError(`Client WebSocket error: ${errorMsg}`)
     clearInterval(pingInterval)
+    if (testBroadcastInterval) {
+      clearInterval(testBroadcastInterval)
+      testBroadcastInterval = null
+    }
     decrementConnections()
   })
 }

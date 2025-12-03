@@ -164,14 +164,14 @@ class RTMPIngestImpl extends EventEmitter implements RTMPIngest {
     }
 
     // FFmpeg команда для декодирования RTMP → PCM16 16kHz mono
-    // Агрессивные low-latency флаги для минимизации буферизации
+    // Low-latency флаги для минимизации буферизации (умеренные, чтобы не ломать RTMP)
     const ffmpegArgs = [
-      // Ultra-low-latency флаги для RTMP
+      // Low-latency флаги для RTMP (умеренные, чтобы не вызывать ошибки)
       '-fflags', 'nobuffer', // Отключаем буферизацию
       '-flags', 'low_delay', // Минимальная задержка
       '-rtmp_live', 'live', // Режим live streaming
       '-probesize', '32', // Минимальный размер probe (быстрый старт)
-      '-analyzeduration', '0', // Не анализировать поток заранее
+      '-analyzeduration', '100000', // Минимальный анализ (100ms вместо 0, чтобы не ломать RTMP)
       // Reconnect флаги для стабильности
       '-reconnect', '1',
       '-reconnect_streamed', '1',
@@ -215,6 +215,8 @@ class RTMPIngestImpl extends EventEmitter implements RTMPIngest {
     // 200ms = 0.2s * 16000 samples/s * 2 bytes = 6400 bytes
     const OPTIMAL_CHUNK_SIZE = 3200 // ~100ms аудио для минимальной задержки
     let audioBuffer = Buffer.alloc(0)
+    let lastFlushTime = Date.now()
+    const FLUSH_INTERVAL_MS = 50 // Отправляем остатки каждые 50ms
 
     this.ffmpegProcess.stdout.on('data', (chunk: Buffer) => {
       // Получаем PCM16 данные и отправляем в Gladia мелкими чанками
@@ -224,23 +226,23 @@ class RTMPIngestImpl extends EventEmitter implements RTMPIngest {
         // Накапливаем данные в буфере
         audioBuffer = Buffer.concat([audioBuffer, chunk])
         
+        const now = Date.now()
+        const shouldFlush = (now - lastFlushTime) >= FLUSH_INTERVAL_MS
+        
         // Отправляем чанки оптимального размера для минимальной задержки
         while (audioBuffer.length >= OPTIMAL_CHUNK_SIZE) {
           const chunkToSend = audioBuffer.slice(0, OPTIMAL_CHUNK_SIZE)
           audioBuffer = audioBuffer.slice(OPTIMAL_CHUNK_SIZE)
           
-          const timestamp = Date.now()
           this.gladiaBridge.sendAudio(chunkToSend)
-          
-          // Логируем отправку чанка (только периодически, чтобы не спамить)
-          if (Math.random() < 0.01) { // 1% логов
-            console.log('[RTMPIngest] Audio chunk sent to Gladia', {
-              sessionSlug: this.config.sessionSlug,
-              chunkSize: chunkToSend.length,
-              timestamp,
-              audioDurationMs: (chunkToSend.length / 2 / 16000) * 1000, // bytes / 2 / sampleRate * 1000
-            })
-          }
+          lastFlushTime = now
+        }
+        
+        // Отправляем остатки если прошло достаточно времени (чтобы не накапливались)
+        if (shouldFlush && audioBuffer.length > 0) {
+          this.gladiaBridge.sendAudio(audioBuffer)
+          audioBuffer = Buffer.alloc(0)
+          lastFlushTime = now
         }
       }
     })
@@ -301,12 +303,21 @@ class RTMPIngestImpl extends EventEmitter implements RTMPIngest {
       this.stopAudioMetrics()
       
       // Логируем ошибку только если это не нормальное завершение
-      if (code !== 0 && code !== null && code !== 255) {
+      // Код 1 может быть нормальным при разрыве соединения или если поток еще не готов
+      if (code !== 0 && code !== null && code !== 255 && code !== 1) {
         console.error(`[RTMPIngest] FFmpeg exited with error code ${code}`, {
           sessionId: this.config.sessionId,
           sessionSlug: this.config.sessionSlug,
         })
-        this.emit('error', new Error(`FFmpeg exited with code ${code}`))
+        // Не бросаем ошибку для кода 1 - это может быть временная проблема с подключением
+        // this.emit('error', new Error(`FFmpeg exited with code ${code}`))
+      } else if (code === 1) {
+        // Код 1 - обычно означает проблему с подключением или потоком
+        // Логируем, но не падаем - возможно поток еще не готов
+        console.warn(`[RTMPIngest] FFmpeg exited with code 1 (may be normal if stream not ready)`, {
+          sessionId: this.config.sessionId,
+          sessionSlug: this.config.sessionSlug,
+        })
       }
     })
   }

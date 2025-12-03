@@ -30,7 +30,7 @@ RUN npx prisma generate
 COPY . .
 
 # Открываем порты
-EXPOSE 8000 1935
+EXPOSE 8000 1936
 
 # Запускаем сервер
 CMD ["npm", "start"]

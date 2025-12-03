@@ -27,7 +27,7 @@ class RTMPServer extends EventEmitter {
   private isRunning = false
   private rtmpPort: number
 
-  constructor(rtmpPort: number = 1935) {
+  constructor(rtmpPort: number = 1936) {
     super()
     this.rtmpPort = rtmpPort
   }
@@ -170,9 +170,9 @@ let globalRTMPServer: RTMPServer | null = null
  */
 export function getGlobalRTMPServer(): RTMPServer {
   if (!globalRTMPServer) {
-    // Внутренний порт - всегда 1935 (где слушает RTMP сервер внутри контейнера)
+    // Внутренний порт - 1936 по умолчанию (где слушает RTMP сервер внутри контейнера)
     // Внешний порт (через TCP прокси) указывается отдельно в RTMP_EXTERNAL_PORT
-    const rtmpInternalPort = parseInt(process.env.RTMP_INTERNAL_PORT || process.env.RTMP_PORT || '1935', 10)
+    const rtmpInternalPort = parseInt(process.env.RTMP_INTERNAL_PORT || process.env.RTMP_PORT || '1936', 10)
     globalRTMPServer = new RTMPServer(rtmpInternalPort)
   }
   return globalRTMPServer

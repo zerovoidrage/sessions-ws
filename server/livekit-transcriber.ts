@@ -60,7 +60,7 @@ export async function startServerTranscription(
     
     const rtmpHost = process.env.RTMP_HOST || 'localhost' // Для production нужен публичный IP/домен
     // Внешний порт для Egress URL (через TCP прокси)
-    const rtmpExternalPort = parseInt(process.env.RTMP_EXTERNAL_PORT || process.env.RTMP_PORT || '1935', 10)
+    const rtmpExternalPort = parseInt(process.env.RTMP_EXTERNAL_PORT || process.env.RTMP_PORT || '1936', 10)
     
     const transcriber = await startRoomCompositeTranscription({
       sessionId,

@@ -1,43 +1,44 @@
-app = "sessions-ws-server"  # TODO: Замени на имя своего приложения после fly launch
+app = "sessions-ws-server"
 primary_region = "fra"
 
 [build]
   dockerfile = "Dockerfile"
 
 [env]
-  PORT = "3001"
+  PORT = "8080"
   NODE_ENV = "production"
 
-# Конфигурация VM (shared-cpu-1x для бесплатного плана)
 [compute]
   cpu_kind = "shared"
   cpus = 1
   memory_mb = 256
 
-# HTTP/WebSocket сервис - http_service автоматически создает сервис на портах 80 и 443
-# Fly.io автоматически поддерживает WebSocket upgrade через http_service
-[http_service]
-  internal_port = 3001
-  force_https = true
-  auto_stop_machines = false
-  auto_start_machines = true
-  min_machines_running = 1
-  processes = ["app"]
+# HTTP/WebSocket сервис (как в примере fly.io)
+[[services]]
+  internal_port = 8080
+  protocol = "tcp"
 
-  [[http_service.checks]]
-    grace_period = "10s"
-    interval = "30s"
-    method = "GET"
-    timeout = "5s"
-    path = "/health"
+  [services.concurrency]
+    hard_limit = 25
+    soft_limit = 20
+
+  [[services.ports]]
+    handlers = ["http"]
+    port = "80"
+
+  [[services.ports]]
+    handlers = ["tls", "http"]
+    port = "443"
+
+  [[services.tcp_checks]]
+    interval = 10000
+    timeout = 2000
 
 # RTMP сервис на порту 1937 (TCP)
 [[services]]
   internal_port = 1937
   protocol = "tcp"
-  processes = ["app"]
 
   [[services.ports]]
     port = 1937
     handlers = ["tcp"]
-

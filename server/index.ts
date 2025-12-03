@@ -5,11 +5,11 @@ import { getMetrics } from './metrics.js'
 import { getQueueMetrics, flushAllPending, stopFlushTimer } from './transcript-batch-queue.js'
 import { startGlobalRTMPServer } from './rtmp-server.js'
 
-// Используем PORT из окружения (Railway автоматически устанавливает его)
-// Fallback на 3001 только для локальной разработки
+// Используем PORT из окружения (Railway/Fly.io автоматически устанавливают его)
+// Fallback на 8080 для локальной разработки (стандарт Fly.io)
 const RTMP_PORT = parseInt(process.env.RTMP_PORT || '1937', 10)
 const envPort = Number(process.env.PORT)
-const port = Number.isFinite(envPort) ? Number(envPort) : 3001
+const port = Number.isFinite(envPort) ? Number(envPort) : 8080
 
 // Логируем конфигурацию портов для отладки
 console.log(`[WS-SERVER] Port configuration:`, {

@@ -109,7 +109,7 @@ export default function HomePage() {
                 alt=""
                 width={16}
                 height={16}
-                className={`inline-block ml-1 align-middle animate-blink ${
+                className={`inline-block ml-1 align-middle animate-blink -mt-[3px] ${
                   currentTextIndex === 0 ? 'opacity-60' : 'opacity-100'
                 }`}
               />

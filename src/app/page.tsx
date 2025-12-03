@@ -3,7 +3,7 @@
 import { useRouter } from 'next/navigation'
 import { useState, useEffect } from 'react'
 import Image from 'next/image'
-import { Plus } from '@phosphor-icons/react'
+import { Plus, DownloadSimple } from '@phosphor-icons/react'
 import { StartSessionButton } from '@/shared/ui/start-session-button'
 import { TVNoise } from '@/shared/ui/tv-noise'
 
@@ -69,6 +69,15 @@ export default function HomePage() {
     }, 2000) // 2 секунды
   }
 
+  const handleDownloadDeck = () => {
+    const link = document.createElement('a')
+    link.href = '/sessions.ai.pdf'
+    link.download = 'sessions.ai.pdf'
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+  }
+
   return (
     <div className="h-screen overflow-y-scroll snap-y snap-mandatory scrollbar-hide bg-surface-900 text-sm">
       {/* First Section - Full Screen */}
@@ -115,34 +124,15 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* Second Section - Full Screen with Text */}
+      {/* Second Section - Full Screen with Download Button */}
       <section className="h-screen snap-start snap-always flex items-center justify-center px-4 bg-white-900">
-        <div className="max-w-lg w-full text-[16px] text-surface-900 text-center space-y-4 leading-tight flex flex-col items-center">
-          <Image
-            src="/img/logo-black.svg"
-            alt="Logo"
-            width={32}
-            height={17}
-            className="mb-8"
-          />
-          <p>Video meetings today are broken.</p>
-          
-          <p>They show faces, they record audio — but they don&apos;t understand anything.</p>
-          
-          <p>Teams leave with scattered notes, forgotten decisions, and lost context.</p>
-          
-          <p>Sessions.ai is the first Real-Time AI-Driven Meeting OS.</p>
-          
-          <p>Not recording. Not a summary.</p>
-          
-          <p>An operating system that thinks during the meeting.</p>
-          
-          <p>It listens, understands topics, captures decisions, creates tasks, detects risks — all in real time.</p>
-          
-          <p>And after the call, you instantly get a clean action plan, an episode timeline, and a living workspace that organizes itself.</p>
-          
-          <p>Teams talk. Sessions.ai does the thinking.</p>
-        </div>
+        <StartSessionButton 
+          onClick={handleDownloadDeck} 
+          className="justify-between px-6 bg-surface-900 text-white-900"
+        >
+          <span>Download Deck</span>
+          <DownloadSimple size={14} />
+        </StartSessionButton>
       </section>
 
       {/* TV Noise Effect */}

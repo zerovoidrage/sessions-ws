@@ -56,10 +56,7 @@ export default function HomePage() {
   }, [charIndex, isDeleting, currentTextIndex])
 
   const handleSignIn = () => {
-    setIsNoiseActive(true)
-    setTimeout(() => {
-      setIsNoiseActive(false)
-    }, 2000) // 2 секунды
+    router.push('/auth/signin')
   }
 
   const handleStartSession = () => {

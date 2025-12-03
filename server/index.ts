@@ -15,7 +15,9 @@ import { sendTranscriptionErrorToSessionClients } from './client-connection.js'
 const SERVER_MODE = process.env.SERVER_MODE // 'ws' | 'rtmp' | undefined
 const RTMP_PORT = parseInt(process.env.RTMP_PORT || '1937', 10)
 const envPort = Number(process.env.PORT)
-const port = Number.isFinite(envPort) ? Number(envPort) : 8080
+// Для моносервиса: PORT должен быть для HTTP/WebSocket (3000), RTMP_PORT - для RTMP (1937)
+// Если PORT не установлен, используем 3000 (стандартный для Next.js)
+const port = Number.isFinite(envPort) ? Number(envPort) : 3000
 
 // Логируем конфигурацию портов и режим работы для отладки
 const serverMode = SERVER_MODE || 'both'
@@ -563,7 +565,10 @@ if (SERVER_MODE === 'rtmp') {
       if (port === RTMP_PORT) {
         console.error(`[WS-SERVER] ⚠️ Skipping RTMP server startup: HTTP/WebSocket server is already using port ${RTMP_PORT}`)
         console.error(`[WS-SERVER] ⚠️ Room Composite Egress transcription will not work.`)
-        console.error(`[WS-SERVER] ⚠️ Solution: Set SERVER_MODE=rtmp for RTMP-only service, or use different ports.`)
+        console.error(`[WS-SERVER] ⚠️ Solution for monolith:`)
+        console.error(`[WS-SERVER] ⚠️   1. Set PORT=3000 (for HTTP/WebSocket)`)
+        console.error(`[WS-SERVER] ⚠️   2. Set RTMP_PORT=1937 (for RTMP)`)
+        console.error(`[WS-SERVER] ⚠️   3. Configure Railway: HTTP Port = 3000, TCP Proxy on 1937`)
       } else {
         try {
           await startGlobalRTMPServer()

@@ -522,22 +522,25 @@ server.on('error', (error: any) => {
 if (SERVER_MODE === 'rtmp') {
   console.log(`[WS-SERVER] ✅ Server running in RTMP-only mode`)
 
-  try {
-    await startGlobalRTMPServer()
-    console.log(`[WS-SERVER] ✅ RTMP server started on port ${RTMP_PORT}`)
-    
-    // Инициализируем автоматическое создание RTMP Ingest при получении потоков
-    const { initializeAutoIngest } = await import('./rtmp-auto-ingest.js')
-    await initializeAutoIngest()
-    console.log(`[WS-SERVER] ✅ Auto-ingest enabled for RTMP streams`)
-  } catch (error: any) {
-    console.error(`[WS-SERVER] ❌ Failed to start RTMP server:`, error)
-    if (error?.code === 'EADDRINUSE') {
-      console.error(`[WS-SERVER] ❌ RTMP port ${RTMP_PORT} is already in use.`)
+  // Обёртка для async операций (tsx не поддерживает top-level await в CJS)
+  ;(async () => {
+    try {
+      await startGlobalRTMPServer()
+      console.log(`[WS-SERVER] ✅ RTMP server started on port ${RTMP_PORT}`)
+      
+      // Инициализируем автоматическое создание RTMP Ingest при получении потоков
+      const { initializeAutoIngest } = await import('./rtmp-auto-ingest.js')
+      await initializeAutoIngest()
+      console.log(`[WS-SERVER] ✅ Auto-ingest enabled for RTMP streams`)
+    } catch (error: any) {
+      console.error(`[WS-SERVER] ❌ Failed to start RTMP server:`, error)
+      if (error?.code === 'EADDRINUSE') {
+        console.error(`[WS-SERVER] ❌ RTMP port ${RTMP_PORT} is already in use.`)
+      }
+      console.error(`[WS-SERVER] ❌ RTMP server failed to start in RTMP-only mode. Exiting.`)
+      process.exit(1)
     }
-    console.error(`[WS-SERVER] ❌ RTMP server failed to start in RTMP-only mode. Exiting.`)
-    process.exit(1)
-  }
+  })()
 
   // Graceful shutdown для RTMP режима
   process.on('SIGTERM', async () => {

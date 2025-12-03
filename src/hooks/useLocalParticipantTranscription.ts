@@ -719,22 +719,10 @@ export function useLocalParticipantTranscription({
           wsUrl: wsUrl.replace(/token=[^&]+/, 'token=***'),
         })
 
-        // Подключаемся к WebSocket для получения транскриптов от сервера
-        // ВАЖНО: Даже при серверной транскрипции клиент должен подключаться к WebSocket
-        // для получения транскриптов, но не отправлять аудио
-        let ws: WebSocket
-        try {
-          ws = await connectTranscriptionWebSocket(wsUrl, {
-            maxRetries: 5,
-            baseDelayMs: 1000,
-            timeoutMs: 10000,
-          })
-          wsRef.current = ws
-          wsReadyRef.current = true
-          
-          // Устанавливаем обработчик сообщений ДО проверки SERVER_TRANSCRIPTION_ENABLED
-          // чтобы получать транскрипты от сервера даже при серверной транскрипции
-          const handleMessage = (event: MessageEvent) => {
+        // Устанавливаем обработчик сообщений ДО подключения
+        // чтобы получать транскрипты от сервера даже при серверной транскрипции
+        // ВАЖНО: Определяем handleMessage в широкой области видимости, чтобы он был доступен в reconnectWebSocket
+        const handleMessage = (event: MessageEvent) => {
             try {
               // Проверяем, что комната еще подключена
               if (!room || room.state !== ConnectionState.Connected || !localParticipant) {
@@ -802,6 +790,19 @@ export function useLocalParticipantTranscription({
             }
           }
 
+        // Подключаемся к WebSocket для получения транскриптов от сервера
+        // ВАЖНО: Даже при серверной транскрипции клиент должен подключаться к WebSocket
+        // для получения транскриптов, но не отправлять аудио
+        let ws: WebSocket
+        try {
+          ws = await connectTranscriptionWebSocket(wsUrl, {
+            maxRetries: 5,
+            baseDelayMs: 1000,
+            timeoutMs: 10000,
+          })
+          wsRef.current = ws
+          wsReadyRef.current = true
+          
           ws.onmessage = handleMessage
           ws.onerror = (error) => {
             console.error('[Transcription] WebSocket error:', error)

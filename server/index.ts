@@ -245,6 +245,7 @@ server.on('request', (req, res) => {
 const wss = new WebSocketServer({
   server,
   path: '/api/realtime/transcribe',
+  perMessageDeflate: false, // Railway proxy корёжит deflate-фреймы — выключаем компрессию
 })
 
 wss.on('connection', (ws, req: http.IncomingMessage) => {
@@ -280,6 +281,7 @@ server.on('upgrade', (request, socket, head) => {
 const egressWss = new WebSocketServer({
   server,
   path: '/egress/audio',
+  perMessageDeflate: false,
 })
 
 egressWss.on('connection', (ws, req: http.IncomingMessage) => {
@@ -313,6 +315,19 @@ egressWss.on('connection', (ws, req: http.IncomingMessage) => {
       console.error(`[WS-SERVER] Failed to register Egress WebSocket:`, error)
       ws.close(5000, 'Failed to register connection')
     })
+})
+
+server.on('error', (error: any) => {
+  if (error.code === 'EADDRINUSE') {
+    console.error(`[WS-SERVER] ❌ Port ${port} is already in use!`)
+    console.error(`[WS-SERVER] To fix:`)
+    console.error(`[WS-SERVER]   1. Kill the process using port ${port}: lsof -ti:${port} | xargs kill`)
+    console.error(`[WS-SERVER]   2. Or use a different port: WS_PORT=3002 npm run dev`)
+    process.exit(1)
+  } else {
+    console.error(`[WS-SERVER] ❌ Server error:`, error)
+    process.exit(1)
+  }
 })
 
 server.listen(port, async () => {

@@ -34,11 +34,12 @@ primary_region = "fra"
     interval = 10000
     timeout = 2000
 
+# ВРЕМЕННО УБРАЛИ RTMP ДЛЯ ТЕСТА
 # RTMP сервис на порту 1937 (TCP)
-[[services]]
-  internal_port = 1937
-  protocol = "tcp"
-
-  [[services.ports]]
-    port = 1937
-    handlers = ["tcp"]
+# [[services]]
+#   internal_port = 1937
+#   protocol = "tcp"
+#
+#   [[services.ports]]
+#     port = 1937
+#     handlers = ["tcp"]

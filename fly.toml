@@ -1,0 +1,60 @@
+app = "sessions-ws-server"  # TODO: Замени на имя своего приложения после fly launch
+primary_region = "iad"  # TODO: Замени на выбранный регион (iad, fra, ams, etc.)
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "3001"
+  NODE_ENV = "production"
+
+# Конфигурация VM (shared-cpu-1x для бесплатного плана)
+[compute]
+  cpu_kind = "shared"
+  cpus = 1
+  memory_mb = 256
+
+# HTTP/WebSocket сервис
+[[services]]
+  internal_port = 3001
+  protocol = "tcp"
+  processes = ["app"]
+
+  # HTTPS/WebSocket через порт 443
+  [[services.ports]]
+    port = 443
+    handlers = ["tls", "http"]
+    force_https = true
+
+  # HTTP редирект на HTTPS
+  [[services.ports]]
+    port = 80
+    handlers = ["http"]
+    force_https = true
+
+# RTMP сервис на порту 1937 (TCP)
+[[services]]
+  internal_port = 1937
+  protocol = "tcp"
+  processes = ["app"]
+
+  [[services.ports]]
+    port = 1937
+    handlers = ["tcp"]
+
+# Health check и автостарт/стоп машин
+[http_service]
+  internal_port = 3001
+  force_https = true
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ["app"]
+
+  [[http_service.checks]]
+    grace_period = "10s"
+    interval = "30s"
+    method = "GET"
+    timeout = "5s"
+    path = "/health"
+

@@ -29,8 +29,8 @@ RUN npx prisma generate
 # Копируем остальные файлы
 COPY . .
 
-# Открываем порты
-EXPOSE 8000 1936
+# Открываем порты (PORT будет установлен Fly.io, RTMP на 1937)
+EXPOSE 3001 1937
 
 # Запускаем сервер
 CMD ["npm", "start"]

@@ -163,7 +163,8 @@ export function handleClientConnection({ ws, req }: ClientConnectionOptions): vo
   registerClientForSession(sessionSlug, ws)
 
   // Отправляем initial message клиенту, чтобы подтвердить успешное подключение
-  // ВАЖНО: Добавляем небольшую задержку для Railway Proxy (даём время завершить WebSocket upgrade)
+  // ВАЖНО: Добавляем задержку для Railway Proxy (даём время завершить WebSocket upgrade)
+  // Railway Proxy буферизирует WebSocket upgrade response и может задерживать первый фрейм
   setTimeout(() => {
     if (ws.readyState === WebSocket.OPEN) {
       try {
@@ -172,11 +173,14 @@ export function handleClientConnection({ ws, req }: ClientConnectionOptions): vo
           sessionSlug,
           message: 'WebSocket connection established',
         }))
+        console.log('[WS-SERVER] ✅ Initial message sent to client')
       } catch (error) {
-        console.error('[WS-SERVER] Failed to send initial message:', error)
+        console.error('[WS-SERVER] ❌ Failed to send initial message:', error)
       }
+    } else {
+      console.warn(`[WS-SERVER] ⚠️ WebSocket not OPEN after delay (state: ${ws.readyState})`)
     }
-  }, 100) // 100ms задержка для Railway Proxy
+  }, 500) // 500ms задержка для Railway Proxy
 
   // Настраиваем ping/pong для поддержания соединения живым
   const pingInterval = setInterval(() => {
@@ -223,8 +227,13 @@ export function handleClientConnection({ ws, req }: ClientConnectionOptions): vo
     // Клиенты больше не отправляют аудио через WebSocket
   })
 
-  ws.on('close', () => {
-    console.log('[WS-SERVER] Client disconnected')
+  ws.on('close', (code, reason) => {
+    console.log('[WS-SERVER] Client disconnected', {
+      code,
+      reason: reason?.toString() || 'no reason',
+      sessionSlug,
+      identity: participantIdentity,
+    })
     
     // Очищаем ping interval
     clearInterval(pingInterval)

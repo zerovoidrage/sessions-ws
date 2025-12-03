@@ -101,7 +101,7 @@ export function ControlBar({
           onClick={onEndForEveryone}
           className="flex items-center justify-center text-white-900"
         >
-          end for everyone
+          end session
         </Button>
       )}
 

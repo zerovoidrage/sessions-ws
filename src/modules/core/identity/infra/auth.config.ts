@@ -23,6 +23,10 @@ export const authOptions: NextAuthOptions = {
   adapter: PrismaAdapter(db),
   session: {
     strategy: 'jwt', // Используем JWT sessions для работы с middleware
+    maxAge: 30 * 24 * 60 * 60, // 30 дней в секундах
+  },
+  jwt: {
+    maxAge: 30 * 24 * 60 * 60, // 30 дней в секундах
   },
   providers: [
     GoogleProvider({

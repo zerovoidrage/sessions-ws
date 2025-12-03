@@ -598,7 +598,7 @@ function SessionContentInner({
   }
 
   const handleEndForEveryone = async () => {
-    if (!confirm('Are you sure you want to end this session for everyone?')) {
+    if (!confirm('Are you sure you want to end this session?')) {
       return
     }
 

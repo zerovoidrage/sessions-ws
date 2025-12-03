@@ -3,8 +3,11 @@ import { scheduleSessionForAnalysis } from './scheduleSessionForAnalysis'
 
 /**
  * Константа: время неактивности в минутах, после которого сессия считается неактивной.
+ * 
+ * Увеличено до 30 минут, чтобы пользователи не вылетали из сессий,
+ * если они просто слушают/смотрят без активности.
  */
-const INACTIVE_MINUTES = 5
+const INACTIVE_MINUTES = 30
 
 /**
  * Use-case: автоматическое завершение неактивных LIVE сессий.

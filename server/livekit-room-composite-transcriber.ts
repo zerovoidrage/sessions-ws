@@ -84,6 +84,13 @@ export async function startRoomCompositeTranscription(
   const externalPort = options.rtmpPort || 
     parseInt(process.env.RTMP_EXTERNAL_PORT || process.env.RTMP_PORT || '1937', 10)
   
+  // Внутренний порт для RTMP сервера (где FFmpeg подключается локально)
+  // Используем RTMP_INTERNAL_PORT или RTMP_PORT из переменных окружения
+  const internalPort = parseInt(
+    process.env.RTMP_INTERNAL_PORT || process.env.RTMP_PORT || '1937',
+    10
+  )
+  
   const { sessionId, sessionSlug, rtmpHost = defaultRtmpHost } = options
 
   console.log(`[RoomCompositeTranscriber] Starting transcription for session ${sessionId} (room: ${sessionSlug})`)
@@ -102,11 +109,11 @@ export async function startRoomCompositeTranscription(
 
   try {
     // 1. Запускаем RTMP Ingest сервер для приема потока
-    // Внутренний порт 1936 (где слушает RTMP сервер)
+    // Используем внутренний порт (где слушает локальный RTMP сервер)
     const rtmpIngest = await createRTMPIngest({
       sessionId,
       sessionSlug,
-      rtmpPort: 1936, // Внутренний порт
+      rtmpPort: internalPort, // Внутренний порт из переменных окружения
     })
 
     // 2. Запускаем Room Composite Egress с audio-only и RTMP выходом

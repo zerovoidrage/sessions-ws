@@ -180,11 +180,9 @@ export function handleClientConnection({ ws, req }: ClientConnectionOptions): vo
   // Клиенты просто регистрируются и получают транскрипты, которые отправляются через broadcastToSessionClients
   registerClientForSession(sessionSlug, ws)
 
-  // Отправляем initial message клиенту, чтобы подтвердить успешное подключение
-  // ВАЖНО: Добавляем задержку для Railway Proxy (даём время завершить WebSocket upgrade)
-  // Railway Proxy буферизирует WebSocket upgrade response и может задерживать первый фрейм
-  setTimeout(() => {
-    clearInterval(checkInterval)
+  // Отправляем initial message клиенту сразу после подключения
+  // Railway proxy может закрывать "пустые" соединения, поэтому отправляем данные как можно скорее
+  const sendInitialMessage = () => {
     if (ws.readyState === WebSocket.OPEN) {
       try {
         ws.send(JSON.stringify({
@@ -197,9 +195,26 @@ export function handleClientConnection({ ws, req }: ClientConnectionOptions): vo
         console.error('[WS-SERVER] ❌ Failed to send initial message:', error)
       }
     } else {
-      console.warn(`[WS-SERVER] ⚠️ WebSocket not OPEN after delay (state: ${ws.readyState})`)
+      console.warn(`[WS-SERVER] ⚠️ WebSocket not OPEN when trying to send initial message (state: ${ws.readyState})`)
     }
-  }, 500) // 500ms задержка для Railway Proxy
+  }
+
+  // Пытаемся отправить сразу, если соединение уже открыто
+  if (ws.readyState === WebSocket.OPEN) {
+    sendInitialMessage()
+  } else {
+    // Если еще не открыто, ждем события 'open' или используем небольшую задержку
+    ws.once('open', () => {
+      clearInterval(checkInterval)
+      sendInitialMessage()
+    })
+    
+    // Fallback: отправляем через небольшую задержку (Railway proxy может задерживать upgrade)
+    setTimeout(() => {
+      clearInterval(checkInterval)
+      sendInitialMessage()
+    }, 100) // Уменьшена задержка до 100ms
+  }
 
   // Настраиваем ping/pong для поддержания соединения живым
   const pingInterval = setInterval(() => {

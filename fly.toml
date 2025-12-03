@@ -13,7 +13,7 @@ primary_region = "fra"
   cpus = 1
   memory_mb = 256
 
-# HTTP/WebSocket сервис (как в примере fly.io)
+# HTTP/WebSocket сервис
 [[services]]
   internal_port = 8080
   protocol = "tcp"
@@ -30,9 +30,13 @@ primary_region = "fra"
     handlers = ["tls", "http"]
     port = "443"
 
-  [[services.tcp_checks]]
+  # Заменяем tcp_checks на http_checks для WebSocket
+  [[services.http_checks]]
     interval = 10000
     timeout = 2000
+    grace_period = 5000
+    method = "get"
+    path = "/health"
 
 # RTMP сервис на порту 1937 (TCP)
 [[services]]

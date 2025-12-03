@@ -101,22 +101,24 @@ export default function HomePage() {
 
         {/* Main content - centered title with typing animation */}
         <div className="flex-1 flex items-center justify-center px-4">
-          <h1 className="text-[18px] sm:text-[18px] tracking-[-0.02em] text-white-900 leading-[1.5] text-center flex items-center gap-1 flex-wrap justify-center max-w-full">
-            <span className="break-words">{displayText}</span>
-            <Image
-              src="/img/logo-w.svg"
-              alt=""
-              width={16}
-              height={16}
-              className={`inline-block ml-0 animate-blink flex-shrink-0 ${
-                currentTextIndex === 0 ? 'opacity-60' : 'opacity-100'
-              }`}
-            />
+          <h1 className="text-[18px] sm:text-[18px] tracking-[-0.02em] text-white-900 leading-[1.5] text-center max-w-full">
+            <span className="inline">
+              {displayText}
+              <Image
+                src="/img/logo-w.svg"
+                alt=""
+                width={16}
+                height={16}
+                className={`inline-block ml-1 align-middle animate-blink ${
+                  currentTextIndex === 0 ? 'opacity-60' : 'opacity-100'
+                }`}
+              />
+            </span>
           </h1>
         </div>
 
         {/* Start Session Button - centered at bottom with 60px margin */}
-        <div className="flex justify-center mb-[120px] sm:mb-[60px] px-4">
+        <div className="flex justify-center mb-[20px] sm:mb-[60px] px-4">
           <StartSessionButton onClick={handleStartSession} className="justify-between px-6 w-full max-w-[calc(100vw-32px)] sm:w-[260px]">
             <span>start AI session</span>
             <Plus size={14} />

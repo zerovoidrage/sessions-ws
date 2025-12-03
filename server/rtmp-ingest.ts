@@ -153,9 +153,13 @@ class RTMPIngestImpl extends EventEmitter implements RTMPIngest {
       return
     }
 
-    // При новом запуске сбрасываем накопленные строки и попытки
-    this.ffmpegRestartAttempts = 0
-    this.ffmpegStderrLines = []
+    // При новом запуске сбрасываем только накопленные строки stderr
+    // Счетчик попыток сбрасываем только если это первый запуск (не ретрай)
+    // Если это ретрай, счетчик уже был увеличен в обработчике exit
+    if (this.ffmpegRestartAttempts === 0) {
+      // Это первый запуск, сбрасываем stderr
+      this.ffmpegStderrLines = []
+    }
 
     // Проверяем наличие FFmpeg перед запуском
     try {
@@ -181,10 +185,6 @@ class RTMPIngestImpl extends EventEmitter implements RTMPIngest {
       // Чуть более безопасные значения анализа потока
       '-probesize', '4096', // вместо 32 — всё ещё low latency, но стабильнее
       '-analyzeduration', '100000', // ~100ms анализа
-      // Reconnect флаги для стабильности
-      '-reconnect', '1',
-      '-reconnect_streamed', '1',
-      '-reconnect_delay_max', '2',
       // Вход
       '-i', this.rtmpUrl, // Вход: RTMP поток
       // Аудио декодирование
@@ -217,6 +217,9 @@ class RTMPIngestImpl extends EventEmitter implements RTMPIngest {
     // Сбрасываем счетчик метрик
     this.audioBytesSent = 0
     this.startAudioMetrics()
+    
+    // Если FFmpeg успешно запустился и начал работать, сбрасываем счетчик попыток
+    // Это будет сделано после того, как FFmpeg начнет выдавать данные
 
     // Размер чанка для оптимальной задержки: ~100-200ms аудио
     // PCM16, 16kHz, mono = 2 байта на сэмпл
@@ -227,7 +230,21 @@ class RTMPIngestImpl extends EventEmitter implements RTMPIngest {
     let lastFlushTime = Date.now()
     const FLUSH_INTERVAL_MS = 50 // Отправляем остатки каждые 50ms
 
+    // Флаг для отслеживания успешного старта FFmpeg
+    let ffmpegStartedSuccessfully = false
+    
     this.ffmpegProcess.stdout.on('data', (chunk: Buffer) => {
+      // Если FFmpeg начал выдавать данные - значит он успешно запустился
+      if (!ffmpegStartedSuccessfully && chunk.length > 0) {
+        ffmpegStartedSuccessfully = true
+        // Сбрасываем счетчик попыток при успешном запуске
+        this.ffmpegRestartAttempts = 0
+        console.log(`[RTMPIngest] FFmpeg started successfully, resetting restart attempts`, {
+          sessionId: this.config.sessionId,
+          sessionSlug: this.config.sessionSlug,
+        })
+      }
+      
       // Получаем PCM16 данные и отправляем в Gladia мелкими чанками
       if (this.gladiaBridge && chunk.length > 0) {
         this.audioBytesSent += chunk.length

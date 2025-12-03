@@ -23,7 +23,7 @@ export async function finalizeSessionTranscript(
   const session = await db.videoSession.findUnique({
     where: { id: sessionId },
     include: {
-      transcriptSegments: {
+      transcripts: {
         where: { isFinal: true },
         orderBy: { startedAt: 'asc' },
         include: {
@@ -47,7 +47,7 @@ export async function finalizeSessionTranscript(
     spaceId: session.spaceId,
     startedAt: session.startedAt?.getTime() ?? null,
     endedAt: session.endedAt?.getTime() ?? null,
-    segments: session.transcriptSegments.map((seg) => ({
+    segments: session.transcripts.map((seg) => ({
       id: seg.id,
       speakerId: seg.participantId ?? null,
       speakerName: seg.participant?.user?.displayName ?? seg.participant?.name ?? 'Unknown',
@@ -80,7 +80,7 @@ export async function finalizeSessionTranscript(
   return {
     blobUrl: url,
     sizeBytes: size,
-    segmentsCount: session.transcriptSegments.length,
+    segmentsCount: session.transcripts.length,
   }
 }
 

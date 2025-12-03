@@ -123,7 +123,22 @@ export function verifyTranscriptionToken(token: string): {
 export function handleClientConnection({ ws, req }: ClientConnectionOptions): void {
   console.log('[WS-SERVER] Client connected', {
     remoteAddress: req.socket.remoteAddress,
+    readyState: ws.readyState, // 0=CONNECTING, 1=OPEN, 2=CLOSING, 3=CLOSED
+    protocol: ws.protocol,
+    extensions: ws.extensions,
   })
+
+  // Логируем состояние WebSocket сразу после подключения
+  // Railway proxy может закрыть соединение до того, как мы успеем что-то сделать
+  const checkInterval = setInterval(() => {
+    console.log('[WS-SERVER] WebSocket state check', {
+      readyState: ws.readyState,
+      timestamp: new Date().toISOString(),
+    })
+    if (ws.readyState !== WebSocket.OPEN && ws.readyState !== WebSocket.CONNECTING) {
+      clearInterval(checkInterval)
+    }
+  }, 100) // Проверяем каждые 100ms
 
   // Парсим URL для получения токена
   const url = new URL(req.url || '', `http://${req.headers.host}`)
@@ -134,6 +149,7 @@ export function handleClientConnection({ ws, req }: ClientConnectionOptions): vo
     const errorMsg = 'Missing transcription token'
     console.error(`[WS-SERVER] ${errorMsg}`)
     recordError(errorMsg)
+    clearInterval(checkInterval)
     ws.close(4001, errorMsg)
     return
   }
@@ -144,6 +160,7 @@ export function handleClientConnection({ ws, req }: ClientConnectionOptions): vo
     const errorMsg = 'Invalid or expired transcription token'
     console.error(`[WS-SERVER] ${errorMsg}`)
     recordError(errorMsg)
+    clearInterval(checkInterval)
     ws.close(4001, errorMsg)
     return
   }
@@ -154,6 +171,7 @@ export function handleClientConnection({ ws, req }: ClientConnectionOptions): vo
     sessionSlug,
     identity: participantIdentity,
     userId: tokenData.userId,
+    readyState: ws.readyState,
   })
 
   // Регистрируем клиента для получения транскриптов от серверной транскрипции
@@ -166,6 +184,7 @@ export function handleClientConnection({ ws, req }: ClientConnectionOptions): vo
   // ВАЖНО: Добавляем задержку для Railway Proxy (даём время завершить WebSocket upgrade)
   // Railway Proxy буферизирует WebSocket upgrade response и может задерживать первый фрейм
   setTimeout(() => {
+    clearInterval(checkInterval)
     if (ws.readyState === WebSocket.OPEN) {
       try {
         ws.send(JSON.stringify({
@@ -228,11 +247,18 @@ export function handleClientConnection({ ws, req }: ClientConnectionOptions): vo
   })
 
   ws.on('close', (code, reason) => {
+    clearInterval(checkInterval)
     console.log('[WS-SERVER] Client disconnected', {
       code,
       reason: reason?.toString() || 'no reason',
       sessionSlug,
       identity: participantIdentity,
+      readyState: ws.readyState,
+      // Коды закрытия WebSocket:
+      // 1000 = Normal Closure
+      // 1001 = Going Away
+      // 1006 = Abnormal Closure (Railway proxy часто закрывает так)
+      codeMeaning: code === 1000 ? 'Normal Closure' : code === 1001 ? 'Going Away' : code === 1006 ? 'Abnormal Closure (no close frame received)' : 'Other',
     })
     
     // Очищаем ping interval
@@ -250,6 +276,13 @@ export function handleClientConnection({ ws, req }: ClientConnectionOptions): vo
 
   ws.on('error', (error) => {
     const errorMsg = error instanceof Error ? error.message : String(error)
+    console.error('[WS-SERVER] WebSocket error', {
+      error: errorMsg,
+      readyState: ws.readyState,
+      sessionSlug,
+      identity: participantIdentity,
+      stack: error instanceof Error ? error.stack : undefined,
+    })
     console.error('[WS-SERVER] Client WebSocket error:', error)
     recordError(`Client WebSocket error: ${errorMsg}`)
     // Очищаем ping interval

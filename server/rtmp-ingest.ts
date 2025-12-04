@@ -228,7 +228,6 @@ class RTMPIngestImpl extends EventEmitter implements RTMPIngest {
       '-fflags', 'nobuffer', // Отключаем буферизацию
       '-flags', 'low_delay', // Минимальная задержка
       '-rtmp_live', 'live', // Режим live streaming
-      '-rtmp_timeout', '2', // Таймаут для RTMP операций (2 секунды) - предотвращает зависание FFmpeg при закрытии потока
       // Агрессивные значения для минимальной задержки
       '-probesize', '64', // Минимальный размер пробы (было: 4096)
       '-analyzeduration', '50000', // ~50ms анализа (было: 100000)

@@ -31,6 +31,7 @@ export function SessionsPageClient({
 }: SessionsPageClientProps) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
+  const [navigatingToSession, setNavigatingToSession] = useState<string | null>(null)
   
   // Optimistic updates for sessions list
   const [optimisticSessions, addOptimisticSession] = useOptimistic(
@@ -40,6 +41,13 @@ export function SessionsPageClient({
   
   const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null)
   const [sessions, setSessions] = useState<Session[]>(initialSessions)
+  
+  // Prefetch session pages for instant navigation
+  useEffect(() => {
+    sessions.forEach((session) => {
+      router.prefetch(`/session/${session.slug}`)
+    })
+  }, [sessions, router])
   const [currentUser, setCurrentUser] = useState<DomainUser>(user)
   const [isKillingAll, setIsKillingAll] = useState(false)
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false)
@@ -383,15 +391,27 @@ export function SessionsPageClient({
           )}
 
           <div className="flex flex-col items-center gap-2">
-            {sessions.map((session) => (
-              <button
-                key={session.id}
-                onClick={() => router.push(`/session/${session.slug}`)}
-                className="text-white-900 hover:opacity-60 transition-opacity cursor-pointer"
-              >
-                Session {session.aiTitle || session.title || session.slug} <span className="text-white-600 lowercase">({session.status.toLowerCase()})</span>
-              </button>
-            ))}
+            {sessions.map((session) => {
+              const isNavigating = navigatingToSession === session.slug
+              return (
+                <button
+                  key={session.id}
+                  onClick={() => {
+                    setNavigatingToSession(session.slug)
+                    startTransition(() => {
+                      router.push(`/session/${session.slug}`)
+                    })
+                  }}
+                  disabled={isNavigating}
+                  className={cn(
+                    "text-white-900 hover:opacity-60 transition-opacity cursor-pointer",
+                    isNavigating && "opacity-60 scale-[0.99]"
+                  )}
+                >
+                  Session {session.aiTitle || session.title || session.slug} <span className="text-white-600 lowercase">({session.status.toLowerCase()})</span>
+                </button>
+              )
+            })}
           </div>
 
           {sessions.length === 0 && (

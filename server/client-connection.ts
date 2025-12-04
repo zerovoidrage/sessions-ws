@@ -222,7 +222,9 @@ export function broadcastToSessionClients(sessionSlug: string, payload: any): vo
     if (utteranceIds.size > MAX_UTTERANCE_IDS) {
       // Удаляем самый старый (первый) элемент
       const firstId = utteranceIds.values().next().value
-      utteranceIds.delete(firstId)
+      if (firstId) {
+        utteranceIds.delete(firstId)
+      }
     }
   }
 

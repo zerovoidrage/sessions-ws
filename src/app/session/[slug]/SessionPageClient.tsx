@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { useSession } from 'next-auth/react'
 import { Room, Track, ConnectionState, RoomEvent, LocalParticipant, RemoteParticipant, createLocalScreenTracks } from 'livekit-client'
@@ -307,6 +307,7 @@ function SessionContentInner({
   displayName: string
   initialAiInsights?: AiSessionInsights | null
 }) {
+  const [isPending, startTransition] = useTransition()
   // Используем контекст транскрипции
   const { transcripts, addMessage } = useTranscriptContext()
 
@@ -494,27 +495,43 @@ function SessionContentInner({
   }
 
   const handleLeave = () => {
-    router.push('/sessions')
+    // 1️⃣ Мгновенный визуальный выход
+    router.replace('/sessions')
+    
+    // 2️⃣ Мягкий disconnect LiveKit — без await
+    try {
+      room?.disconnect?.()
+    } catch (error) {
+      console.error('[SessionContent] LiveKit disconnect error', error)
+    }
+    
+    // Cleanup уже произойдет через useEffect cleanup в useRoom
+    // Но вызываем disconnect сразу для быстрого отключения
   }
 
-  const handleEndForEveryone = async () => {
+  const handleEndForEveryone = () => {
     if (!sessionSlug) return
     
+    // 1️⃣ Мгновенный визуальный выход
+    router.replace('/sessions')
+    
+    // 2️⃣ Мягкий disconnect LiveKit — без await
     try {
-      const { endSessionAction } = await import('./actions')
-      const result = await endSessionAction(sessionSlug)
-      
-      if (!result.success) {
-        console.error('[SessionContent] Failed to end session', result.error)
-        alert(result.error || 'Failed to end session')
-        return
-      }
-      
-      router.push('/sessions')
+      room?.disconnect?.()
     } catch (error) {
-      console.error('[SessionContent] Error ending session', error)
-      alert('Failed to end session')
+      console.error('[SessionContent] LiveKit disconnect error', error)
     }
+    
+    // 3️⃣ Серверная логика — в фоне (fire-and-forget)
+    startTransition(() => {
+      import('./actions').then(({ endSessionAction }) => {
+        endSessionAction(sessionSlug).catch((error) => {
+          console.error('[SessionContent] endSessionAction error', error)
+          // Не показываем alert - пользователь уже вышел из комнаты
+          // Опционально: можно показать toast, но не блокировать UI
+        })
+      })
+    })
   }
 
   const isCreator = currentUserId === sessionCreatedByUserId
@@ -606,9 +623,10 @@ function SessionContentInner({
         <div className="absolute top-2.5 right-4 z-50">
           <button
             onClick={handleEndForEveryone}
-            className="text-sm text-white-600 hover:text-white-900 transition-colors cursor-pointer"
+            disabled={isPending}
+            className="text-sm text-white-600 hover:text-white-900 transition-colors cursor-pointer disabled:opacity-60"
           >
-            end session
+            {isPending ? 'Exiting...' : 'end session'}
           </button>
         </div>
       )}

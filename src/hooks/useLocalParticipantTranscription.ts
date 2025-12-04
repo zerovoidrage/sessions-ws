@@ -778,8 +778,16 @@ export function useLocalParticipantTranscription({
           }
 
           // 3️⃣ Основной кейс: транскрипты
-          if (message.type === 'transcript' || message.type === 'transcription') {
-            const transcriptMessage = message as Extract<ServerTranscriptionMessage, { type: 'transcript' | 'transcription' }>
+          // Поддерживаем старый формат (transcript/transcription) и новый (transcript_partial/transcript_final)
+          if (
+            message.type === 'transcript' || 
+            message.type === 'transcription' ||
+            message.type === 'transcript_partial' ||
+            message.type === 'transcript_final'
+          ) {
+            const transcriptMessage = message as Extract<ServerTranscriptionMessage, { 
+              type: 'transcript' | 'transcription' | 'transcript_partial' | 'transcript_final' 
+            }>
             const { text, isFinal, is_final, utteranceId, utterance_id, speakerId, speaker_id } = transcriptMessage
 
             // Проверяем, что есть валидный текст
@@ -789,7 +797,12 @@ export function useLocalParticipantTranscription({
             }
 
             // Нормализуем значения (поддерживаем оба варианта имен полей для обратной совместимости)
-            const normalizedIsFinal = Boolean(isFinal ?? is_final ?? false)
+            // Для новых типов: transcript_final = isFinal=true, transcript_partial = isFinal=false
+            const normalizedIsFinal = message.type === 'transcript_final' 
+              ? true 
+              : message.type === 'transcript_partial'
+              ? false
+              : Boolean(isFinal ?? is_final ?? false)
             const normalizedUtteranceId = utteranceId || utterance_id || null
             const normalizedSpeakerId = speakerId || speaker_id || null
 
@@ -799,6 +812,7 @@ export function useLocalParticipantTranscription({
             }
 
             console.log('[Transcription] ✅ Processing transcription message', {
+              type: message.type,
               text: text.substring(0, 100),
               isFinal: normalizedIsFinal,
               utteranceId: normalizedUtteranceId,

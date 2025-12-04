@@ -15,7 +15,7 @@ export interface ConnectedMessage {
 }
 
 /**
- * Основной тип сообщения с транскриптом.
+ * Основной тип сообщения с транскриптом (старый формат для обратной совместимости).
  */
 export interface TranscriptMessage {
   type: 'transcript' | 'transcription' // Поддерживаем оба варианта для обратной совместимости
@@ -26,6 +26,40 @@ export interface TranscriptMessage {
   utterance_id?: string // Альтернативное имя для обратной совместимости
   speakerId?: string
   speaker_id?: string // Альтернативное имя для обратной совместимости
+  ts?: number
+  segments?: any
+}
+
+/**
+ * Частичный транскрипт (interim/partial) - новый формат.
+ */
+export interface TranscriptPartialMessage {
+  type: 'transcript_partial'
+  text: string
+  isFinal?: false // Всегда false для partial
+  is_final?: false // Альтернативное имя для обратной совместимости
+  utteranceId?: string
+  utterance_id?: string // Альтернативное имя для обратной совместимости
+  speakerId?: string
+  speaker_id?: string // Альтернативное имя для обратной совместимости
+  speaker?: string
+  ts?: number
+  segments?: any
+}
+
+/**
+ * Финальный транскрипт - новый формат.
+ */
+export interface TranscriptFinalMessage {
+  type: 'transcript_final'
+  text: string
+  isFinal?: true // Всегда true для final
+  is_final?: true // Альтернативное имя для обратной совместимости
+  utteranceId?: string
+  utterance_id?: string // Альтернативное имя для обратной совместимости
+  speakerId?: string
+  speaker_id?: string // Альтернативное имя для обратной совместимости
+  speaker?: string
   ts?: number
   segments?: any
 }
@@ -46,6 +80,8 @@ export interface ErrorMessage {
 export type ServerTranscriptionMessage =
   | ConnectedMessage
   | TranscriptMessage
+  | TranscriptPartialMessage
+  | TranscriptFinalMessage
   | ErrorMessage
   | (Record<string, any> & { type?: string }) // Fallback для неизвестных форматов
 

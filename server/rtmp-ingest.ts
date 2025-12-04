@@ -253,13 +253,14 @@ class RTMPIngestImpl extends EventEmitter implements RTMPIngest {
 
     // Размер чанка для оптимальной задержки: настраивается через env
     // PCM16, 16kHz, mono = 2 байта на сэмпл
+    // 50ms = 0.05s * 16000 samples/s * 2 bytes = 1600 bytes (оптимизировано для минимальной задержки)
     // 100ms = 0.1s * 16000 samples/s * 2 bytes = 3200 bytes
     // 200ms = 0.2s * 16000 samples/s * 2 bytes = 6400 bytes
-    const PCM_CHUNK_SIZE_MS = parseInt(process.env.PCM_CHUNK_SIZE_MS || '100', 10)
+    const PCM_CHUNK_SIZE_MS = parseInt(process.env.PCM_CHUNK_SIZE_MS || '50', 10) // Оптимизировано: 50ms вместо 100ms
     const OPTIMAL_CHUNK_SIZE = Math.floor((PCM_CHUNK_SIZE_MS / 1000) * 16000 * 2) // bytes
     let audioBuffer = Buffer.alloc(0)
     let lastFlushTime = Date.now()
-    const FLUSH_INTERVAL_MS = 50 // Отправляем остатки каждые 50ms
+    const FLUSH_INTERVAL_MS = 25 // Оптимизировано: 25ms вместо 50ms для более частой отправки остатков
 
     // Флаг для отслеживания успешного старта FFmpeg
     let ffmpegStartedSuccessfully = false

@@ -25,7 +25,7 @@ const sessionClients = new Map<string, Set<WsClientMeta>>()
 // Очереди для backpressure: Map<sessionSlug, Array<ServerTranscriptionMessage>>
 // Ограничиваем размер очереди для предотвращения переполнения памяти
 const sessionQueues = new Map<string, Array<any>>()
-const MAX_QUEUE_SIZE = parseInt(process.env.MAX_BROADCAST_QUEUE_SIZE || '1000', 10)
+const MAX_QUEUE_SIZE = parseInt(process.env.MAX_BROADCAST_QUEUE_SIZE || '500', 10) // Оптимизировано: 500 вместо 1000 для более агрессивного drop'а старых сообщений
 
 // Дедупликация final транскриптов: Map<sessionSlug, Set<utteranceId>>
 // Храним последние 1000 utteranceId для каждой сессии
@@ -482,8 +482,8 @@ export function handleClientConnection({ ws, req }: ClientConnectionOptions): vo
   // Heartbeat механизм с отслеживанием pong и таймаутами
   let missedPongs = 0
   const MAX_MISSED_PONGS = 3
-  const PING_INTERVAL_MS = 30000 // Ping каждые 30 секунд
-  const HEARTBEAT_TIMEOUT_MS = PING_INTERVAL_MS * MAX_MISSED_PONGS // 90 секунд
+  const PING_INTERVAL_MS = 15000 // Оптимизировано: 15 секунд вместо 30 для более быстрого обнаружения мертвых соединений
+  const HEARTBEAT_TIMEOUT_MS = PING_INTERVAL_MS * MAX_MISSED_PONGS // 45 секунд (было 90)
   
   const pingInterval = setInterval(() => {
     if (ws.readyState === WebSocket.OPEN) {

@@ -5,9 +5,7 @@ const { withSentryConfig } = require('@sentry/nextjs')
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  devIndicators: {
-    buildActivity: false,
-  },
+  devIndicators: false,
   experimental: {
     // React Compiler (enable if supported by current Next/React version)
     // reactCompiler: true,

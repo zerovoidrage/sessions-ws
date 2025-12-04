@@ -26,12 +26,19 @@
 **Локально мы НЕ поднимаем серверы:**
 - ✅ Подключаемся к **продовой БД** (Neon PostgreSQL на Vercel)
 - ✅ Подключаемся к **продовому WS/RTMP серверу** на Railway
-- ❌ НЕ запускаем локально `server/index.ts` (WS/RTMP)
+- ❌ **НИКОГДА** не запускаем локально WebSocket/RTMP сервер (`server/`, `ws-server/`)
 - ✅ Запускаем только `npm run dev` (Next.js frontend)
+
+**ВАЖНО: WebSocket/RTMP сервер:**
+- WebSocket/RTMP сервер разрабатывается и деплоится **только на Railway**
+- Локально мы **всегда** подключаемся к продовому Railway WebSocket/RTMP серверу
+- В коде **НЕТ** fallback на `localhost` для WebSocket/RTMP
+- Всегда используется `NEXT_PUBLIC_WS_SERVER_URL` или `WS_SERVER_URL` (обязательная переменная)
+- Если переменная не установлена — код должен выбрасывать ошибку, а не fallback на localhost
 
 **Environment variables для локальной разработки:**
 - `DATABASE_URL` → продовая БД
-- `WS_SERVER_URL` / `NEXT_PUBLIC_WS_SERVER_URL` → продовый Railway WS/RTMP сервер
+- `WS_SERVER_URL` / `NEXT_PUBLIC_WS_SERVER_URL` → **обязательно** продовый Railway WS/RTMP сервер (без fallback на localhost)
 - `NEXT_PUBLIC_LIVEKIT_URL` → продовый LiveKit
 
 ---

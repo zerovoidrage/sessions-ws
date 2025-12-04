@@ -40,7 +40,7 @@ export interface TranscriptEvent {
 
 export interface GladiaBridge {
   sendAudio(chunk: ArrayBuffer | Buffer): void
-  close(): void
+  close(): Promise<void>
   onTranscript(cb: (event: TranscriptEvent) => void): void
 }
 
@@ -287,7 +287,7 @@ export async function createGladiaBridge(): Promise<GladiaBridge> {
         }
       }
     },
-    close() {
+    async close(): Promise<void> {
       if (isClosed) {
         return
       }
@@ -298,10 +298,43 @@ export async function createGladiaBridge(): Promise<GladiaBridge> {
       if (gladiaWs.readyState === WebSocket.OPEN || gladiaWs.readyState === WebSocket.CONNECTING) {
         try {
           gladiaWs.close()
+          
+          // Ждем закрытия WebSocket с таймаутом
+          const closed = await new Promise<boolean>((resolve) => {
+            const timeout = setTimeout(() => {
+              resolve(false) // WebSocket не закрылся за таймаут
+            }, 2000) // 2 секунды таймаут
+            
+            gladiaWs.once('close', () => {
+              clearTimeout(timeout)
+              resolve(true) // WebSocket закрылся
+            })
+          })
+          
+          if (!closed) {
+            console.warn('[GladiaBridge] WebSocket did not close within timeout', {
+              readyState: gladiaWs.readyState,
+            })
+            recordCounter('gladia.close_timeout')
+            // Пытаемся принудительно закрыть
+            try {
+              gladiaWs.terminate()
+            } catch (terminateError) {
+              // Игнорируем ошибки при terminate
+            }
+          } else {
+            console.log('[GladiaBridge] WebSocket closed gracefully')
+          }
         } catch (error) {
           console.error('[GladiaBridge] Error closing WebSocket:', {
             error: error instanceof Error ? error.message : String(error),
           })
+          // Пытаемся принудительно закрыть даже при ошибке
+          try {
+            gladiaWs.terminate()
+          } catch (terminateError) {
+            // Игнорируем ошибки при terminate
+          }
         }
       }
       

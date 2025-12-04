@@ -71,13 +71,15 @@ export async function handleBroadcast(req: IncomingMessage, res: ServerResponse)
       }
 
       // Собираем ServerTranscriptionMessage
+      // Разделяем partial и final типы для лучшей семантики
+      const isFinalBool = Boolean(isFinal)
       const payload: ServerTranscriptionMessage = {
-        type: 'transcript',
+        type: isFinalBool ? 'transcript_final' : 'transcript_partial',
         sessionSlug,
         userId,
         utteranceId,
         text,
-        isFinal: Boolean(isFinal),
+        isFinal: isFinalBool, // Оставляем для обратной совместимости
         speaker: speaker || speakerId,
         speakerId: speakerId || speaker,
         ts: ts ?? Date.now(),

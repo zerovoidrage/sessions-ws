@@ -5,6 +5,10 @@ const { withSentryConfig } = require('@sentry/nextjs')
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  experimental: {
+    // React Compiler (enable if supported by current Next/React version)
+    // reactCompiler: true,
+  },
   webpack: (config, { isServer }) => {
     // Исключаем серверные модули из клиентского bundle
     if (!isServer) {

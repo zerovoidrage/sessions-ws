@@ -4,7 +4,8 @@ import { ensureUserHasAtLeastOneSpace } from '@/modules/core/spaces/application/
 import { listSpacesForUser } from '@/modules/core/spaces/application/listSpacesForUser'
 import { createSessionEndpoint } from '@/modules/core/sessions/api/createSessionEndpoint'
 import { listSessionsEndpoint } from '@/modules/core/sessions/api/listSessionsEndpoint'
-import { withRateLimit, RATE_LIMIT_CONFIGS, getClientIP } from '@/lib/rate-limit'
+import { withRateLimit, RATE_LIMIT_CONFIGS } from '@/lib/rate-limit'
+import { handleApiError } from '@/lib/http/handleApiError'
 
 // GET /api/sessions
 export async function GET(req: Request) {
@@ -17,7 +18,7 @@ export async function GET(req: Request) {
   try {
     const user = await getCurrentUser()
     if (!user) {
-      return new NextResponse('UNAUTHORIZED', { status: 401 })
+      return handleApiError(new Error('UNAUTHORIZED'))
     }
 
     await ensureUserHasAtLeastOneSpace(user.id)
@@ -33,8 +34,7 @@ export async function GET(req: Request) {
 
     return NextResponse.json({ sessions })
   } catch (error) {
-    console.error('Error listing sessions:', error)
-    return new NextResponse('Failed to list sessions', { status: 500 })
+    return handleApiError(error)
   }
 }
 
@@ -49,7 +49,7 @@ export async function POST(req: Request) {
   try {
     const user = await getCurrentUser()
     if (!user) {
-      return new NextResponse('UNAUTHORIZED', { status: 401 })
+      return handleApiError(new Error('UNAUTHORIZED'))
     }
 
     const body = await req.json()
@@ -57,7 +57,7 @@ export async function POST(req: Request) {
 
     const finalSpaceId = spaceId || user.activeSpaceId
     if (!finalSpaceId) {
-      return new NextResponse('NO_ACTIVE_SPACE', { status: 400 })
+      return handleApiError(new Error('INVALID_INPUT: No active space'))
     }
 
     const session = await createSessionEndpoint(user, {
@@ -67,7 +67,6 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ slug: session.slug })
   } catch (error) {
-    console.error('Error creating session:', error)
-    return new NextResponse('Failed to create session', { status: 500 })
+    return handleApiError(error)
   }
 }

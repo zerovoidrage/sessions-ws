@@ -501,18 +501,19 @@ function SessionContentInner({
     if (!sessionSlug) return
     
     try {
-      const res = await fetch(`/api/sessions/${sessionSlug}/end`, {
-        method: 'POST',
-      })
+      const { endSessionAction } = await import('./actions')
+      const result = await endSessionAction(sessionSlug)
       
-      if (!res.ok) {
-        console.error('[SessionContent] Failed to end session', res.status)
+      if (!result.success) {
+        console.error('[SessionContent] Failed to end session', result.error)
+        alert(result.error || 'Failed to end session')
         return
       }
       
       router.push('/sessions')
     } catch (error) {
       console.error('[SessionContent] Error ending session', error)
+      alert('Failed to end session')
     }
   }
 

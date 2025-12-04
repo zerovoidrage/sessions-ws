@@ -1,9 +1,9 @@
 import { redirect } from 'next/navigation'
-import { getCurrentUser } from '@/modules/core/identity/application/getCurrentUser'
-import { getById } from '@/modules/core/spaces/infra/spaces.repository'
+import { getCurrentUserCached } from '@/modules/core/identity/application/user.loaders'
+import { getSpaceByIdCached } from '@/modules/core/spaces/application/space.loaders'
 
 export default async function TasksPage() {
-  const user = await getCurrentUser()
+  const user = await getCurrentUserCached()
 
   if (!user) {
     redirect('/')
@@ -13,7 +13,7 @@ export default async function TasksPage() {
     redirect('/sessions')
   }
 
-  const space = await getById(user.activeSpaceId)
+  const space = await getSpaceByIdCached(user.activeSpaceId)
 
   if (!space || space.mode !== 'SESSIONS_AND_TASKS') {
     return (

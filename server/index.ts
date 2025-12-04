@@ -81,12 +81,23 @@ const server = http.createServer(async (req, res) => {
       const { getLatencySnapshot, getCountersSnapshot } = await import('./realtime-metrics.js')
       const latencyMetrics = getLatencySnapshot()
       const countersMetrics = getCountersSnapshot()
+      
+      // Добавляем per-session метрики клиентов из counters
+      const sessionClientsMetrics: Record<string, number> = {}
+      for (const [key, value] of Object.entries(countersMetrics)) {
+        if (key.startsWith('ws.session_clients.')) {
+          const slug = key.replace('ws.session_clients.', '')
+          sessionClientsMetrics[slug] = value as number
+        }
+      }
+      
       res.statusCode = 200
       res.end(JSON.stringify({
         ...metrics,
         queue: queueMetrics,
         latency: latencyMetrics,
         counters: countersMetrics,
+        sessionClients: sessionClientsMetrics,
       }, null, 2))
     } catch (error) {
       res.statusCode = 500

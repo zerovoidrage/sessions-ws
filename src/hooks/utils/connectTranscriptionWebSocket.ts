@@ -16,6 +16,31 @@ const DEFAULT_OPTIONS: Required<ConnectWebSocketOptions> = {
 }
 
 /**
+ * Возвращает человекочитаемое описание кода закрытия WebSocket
+ */
+function getCloseCodeMeaning(code: number): string {
+  const meanings: Record<number, string> = {
+    1000: 'Normal Closure',
+    1001: 'Going Away',
+    1002: 'Protocol Error',
+    1003: 'Unsupported Data',
+    1004: 'Reserved',
+    1005: 'No Status Received',
+    1006: 'Abnormal Closure (network error, timeout)',
+    1007: 'Invalid Frame Payload Data',
+    1008: 'Policy Violation (invalid token, auth failed)',
+    1009: 'Message Too Big',
+    1010: 'Mandatory Extension',
+    1011: 'Internal Server Error',
+    1012: 'Service Restart',
+    1013: 'Try Again Later',
+    1014: 'Bad Gateway',
+    1015: 'TLS Handshake',
+  }
+  return meanings[code] || `Unknown code: ${code}`
+}
+
+/**
  * Подключается к WebSocket с retry-логикой (экспоненциальный backoff).
  * 
  * @param wsUrl URL WebSocket сервера
@@ -62,15 +87,33 @@ export async function connectTranscriptionWebSocket(
 
         ws.onclose = (event) => {
           clearTimeout(timeout)
-          console.error(`[WebSocket] Connection closed (attempt ${attempt + 1}):`, {
-            code: event.code,
-            reason: event.reason || 'no reason',
-            wasClean: event.wasClean,
-            url: wsUrl,
-          })
-          // Если закрылось до onopen, это ошибка
-          if (event.code !== 1000) {
+          
+          // Коды закрытия WebSocket:
+          // 1000 - нормальное закрытие
+          // 1001 - ушел (going away)
+          // 1006 - ненормальное закрытие (сеть, таймаут)
+          // 1008 - политика нарушена (неверный токен, авторизация)
+          // 1011 - внутренняя ошибка сервера
+          const isError = event.code !== 1000 && event.code !== 1001
+          
+          if (isError) {
+            console.error(`[WebSocket] Connection closed with error (attempt ${attempt + 1}):`, {
+              code: event.code,
+              reason: event.reason || 'no reason',
+              wasClean: event.wasClean,
+              url: wsUrl.replace(/token=[^&]+/, 'token=***'),
+              codeMeaning: getCloseCodeMeaning(event.code),
+            })
             reject(new Error(`WebSocket closed unexpectedly: code=${event.code}, reason=${event.reason || 'unknown'}`))
+          } else {
+            // Нормальное закрытие - логируем как info, не error
+            console.log(`[WebSocket] Connection closed normally (attempt ${attempt + 1}):`, {
+              code: event.code,
+              reason: event.reason || 'no reason',
+              wasClean: event.wasClean,
+            })
+            // Для нормального закрытия тоже реджектим, чтобы retry сработал
+            reject(new Error(`WebSocket closed: code=${event.code}`))
           }
         }
       })

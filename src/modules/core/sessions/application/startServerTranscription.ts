@@ -38,9 +38,12 @@ export async function startServerTranscription(
   }
 
   // Вызываем WebSocket сервер через HTTP API
-  // Это проще, чем пытаться загрузить TypeScript модули через require
+  // ВАЖНО: Локально WebSocket/RTMP сервер НЕ запускается, всегда используется продовый Railway сервер
   try {
-    const wsServerUrl = process.env.WS_SERVER_URL || 'http://localhost:3001'
+    const wsServerUrl = process.env.WS_SERVER_URL || process.env.NEXT_PUBLIC_WS_SERVER_URL
+    if (!wsServerUrl) {
+      throw new Error('WS_SERVER_URL or NEXT_PUBLIC_WS_SERVER_URL environment variable is required')
+    }
     const response = await fetch(`${wsServerUrl}/api/transcription/start`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

@@ -27,34 +27,18 @@ export type UseRealtimeTranscriptResult = {
 
 /**
  * Получает WebSocket URL для транскрипции
+ * ВАЖНО: Локально WebSocket/RTMP сервер НЕ запускается, всегда используется продовый Railway сервер
  */
 function getTranscriptionWebSocketUrl(sessionSlug: string, transcriptionToken: string): string {
-  // Определяем хост WebSocket сервера
-  const wsServerUrl = process.env.NEXT_PUBLIC_WS_SERVER_URL || ''
-  let cleanHost = wsServerUrl.replace(/^https?:\/\//, '').replace(/\/$/, '')
-  
-  // Если не указан явно, используем текущий хост
-  if (!cleanHost) {
-    if (typeof window !== 'undefined') {
-      cleanHost = window.location.hostname
-    } else {
-      cleanHost = 'localhost'
-    }
+  const wsServerUrl = process.env.NEXT_PUBLIC_WS_SERVER_URL
+  if (!wsServerUrl) {
+    throw new Error('NEXT_PUBLIC_WS_SERVER_URL environment variable is required')
   }
   
-  // Определяем протокол и порт
-  const isRemoteHost = cleanHost !== 'localhost' && 
-    !cleanHost.startsWith('127.0.0.1') && 
-    !cleanHost.startsWith('192.168.')
-  
-  const wsProtocol = isRemoteHost
-    ? 'wss'
-    : (typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'wss' : 'ws')
-  
-  const wsPort = process.env.NEXT_PUBLIC_WS_PORT
-  const baseUrl = !isRemoteHost
-    ? `${wsProtocol}://${cleanHost}:${wsPort || '3001'}`
-    : `${wsProtocol}://${cleanHost}`
+  // Убираем http/https и добавляем ws/wss
+  const cleanUrl = wsServerUrl.replace(/^https?:\/\//, '')
+  const wsProtocol = wsServerUrl.startsWith('https') ? 'wss' : 'ws'
+  const baseUrl = `${wsProtocol}://${cleanUrl}`
   
   return `${baseUrl}/api/realtime/transcribe?token=${encodeURIComponent(transcriptionToken)}`
 }

@@ -8,9 +8,10 @@ import { realtimeInsightsEndpoint } from '@/modules/core/intelligence/api/realti
 
 export async function POST(
   req: Request,
-  { params }: { params: { slug: string } }
+  { params }: { params: Promise<{ slug: string }> }
 ) {
-  return realtimeInsightsEndpoint(req as any, { slug: params.slug })
+  const { slug } = await params
+  return realtimeInsightsEndpoint(req as any, { slug })
 }
 
 

@@ -688,34 +688,22 @@ export function useLocalParticipantTranscription({
           throw new Error('Transcription token is required')
         }
         
-        // Определяем протокол и хост для WebSocket
-        // Railway — это всегда TLS, поэтому для удалённого хоста всегда wss://
-        // Для localhost используем ws:// с портом
-        const wsHost = process.env.NEXT_PUBLIC_WS_HOST || 'localhost'
-        const cleanHost = wsHost.replace(/^https?:\/\//, '').replace(/\/$/, '')
+        // Определяем WebSocket URL из переменной окружения
+        // ВАЖНО: Локально WebSocket/RTMP сервер НЕ запускается, всегда используется продовый Railway сервер
+        const wsServerUrl = process.env.NEXT_PUBLIC_WS_SERVER_URL
+        if (!wsServerUrl) {
+          throw new Error('NEXT_PUBLIC_WS_SERVER_URL environment variable is required')
+        }
         
-        // Проверяем, является ли хост локальным
-        const isRemoteHost = cleanHost !== 'localhost' && !cleanHost.startsWith('127.0.0.1') && !cleanHost.startsWith('192.168.')
-        
-        // Протокол: для удалённого хоста (Railway) всегда wss, для localhost — зависит от window.location.protocol
-        const wsProtocol = isRemoteHost
-          ? 'wss'
-          : (typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'wss' : 'ws')
-        
-        // Порт: только для локального хоста
-        // Если указан NEXT_PUBLIC_WS_PORT, используем его, иначе fallback на 3001 для localhost
-        const wsPort = process.env.NEXT_PUBLIC_WS_PORT
-        const baseUrl = !isRemoteHost
-          ? `${wsProtocol}://${cleanHost}:${wsPort || '3001'}`
-          : `${wsProtocol}://${cleanHost}`
+        // Убираем http/https и добавляем ws/wss
+        const cleanUrl = wsServerUrl.replace(/^https?:\/\//, '')
+        const wsProtocol = wsServerUrl.startsWith('https') ? 'wss' : 'ws'
+        const baseUrl = `${wsProtocol}://${cleanUrl}`
         
         const wsUrl = `${baseUrl}/api/realtime/transcribe?token=${encodeURIComponent(transcriptionToken)}`
         
         console.log('[Transcription] WebSocket URL constructed', {
-          wsHost: cleanHost,
-          wsProtocol,
-          isRemoteHost,
-          wsPort,
+          wsServerUrl: wsServerUrl.replace(/token=[^&]+/, 'token=***'),
           baseUrl,
           wsUrl: wsUrl.replace(/token=[^&]+/, 'token=***'),
         })
@@ -1160,24 +1148,16 @@ export function useLocalParticipantTranscription({
           }
           
           // Создаем новый URL с актуальным transcriptionToken (используем ту же логику, что и в startTranscription)
-          const reconnectWsHost = process.env.NEXT_PUBLIC_WS_HOST || 'localhost'
-          const reconnectCleanHost = reconnectWsHost.replace(/^https?:\/\//, '').replace(/\/$/, '')
+          // Используем тот же URL, что и при первоначальном подключении
+          const reconnectWsServerUrl = process.env.NEXT_PUBLIC_WS_SERVER_URL
+          if (!reconnectWsServerUrl) {
+            console.error('[Transcription] Cannot reconnect: NEXT_PUBLIC_WS_SERVER_URL is required')
+            return
+          }
           
-          // Проверяем, является ли хост локальным
-          const reconnectIsRemoteHost = reconnectCleanHost !== 'localhost' && !reconnectCleanHost.startsWith('127.0.0.1') && !reconnectCleanHost.startsWith('192.168.')
-          
-          // Протокол: для удалённого хоста (Railway) всегда wss, для localhost — зависит от window.location.protocol
-          const reconnectWsProtocol = reconnectIsRemoteHost
-            ? 'wss'
-            : (typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'wss' : 'ws')
-          
-          // Порт: только для локального хоста
-          // Если указан NEXT_PUBLIC_WS_PORT, используем его, иначе fallback на 3001 для localhost
-          const reconnectWsPort = process.env.NEXT_PUBLIC_WS_PORT
-          const reconnectBaseUrl = !reconnectIsRemoteHost
-            ? `${reconnectWsProtocol}://${reconnectCleanHost}:${reconnectWsPort || '3001'}`
-            : `${reconnectWsProtocol}://${reconnectCleanHost}`
-          
+          const reconnectCleanUrl = reconnectWsServerUrl.replace(/^https?:\/\//, '')
+          const reconnectWsProtocol = reconnectWsServerUrl.startsWith('https') ? 'wss' : 'ws'
+          const reconnectBaseUrl = `${reconnectWsProtocol}://${reconnectCleanUrl}`
           const reconnectWsUrl = `${reconnectBaseUrl}/api/realtime/transcribe?token=${encodeURIComponent(transcriptionTokenRef.current)}`
           
           try {

@@ -10,6 +10,7 @@ import {
   incrementMessagesSent,
   recordError,
 } from './metrics'
+import { recordCounter, recordLatency } from './realtime-metrics.js'
 import { cleanupClientTracker } from './audio-validator.js'
 import { updateActiveSpeaker, type ActiveSpeakerEvent } from './active-speaker-tracker.js'
 
@@ -20,6 +21,16 @@ import type { WsClientMeta } from './types.js'
 // Хранилище клиентов по сессиям для отправки транскриптов от серверной транскрипции
 // Используем Map<sessionSlug, Set<WsClientMeta>> для хранения метаданных о клиентах
 const sessionClients = new Map<string, Set<WsClientMeta>>()
+
+// Очереди для backpressure: Map<sessionSlug, Array<ServerTranscriptionMessage>>
+// Ограничиваем размер очереди для предотвращения переполнения памяти
+const sessionQueues = new Map<string, Array<any>>()
+const MAX_QUEUE_SIZE = parseInt(process.env.MAX_BROADCAST_QUEUE_SIZE || '1000', 10)
+
+// Дедупликация final транскриптов: Map<sessionSlug, Set<utteranceId>>
+// Храним последние 1000 utteranceId для каждой сессии
+const recentUtteranceIds = new Map<string, Set<string>>()
+const MAX_UTTERANCE_IDS = 1000
 
 /**
  * Регистрирует клиента для сессии с метаданными.
@@ -42,6 +53,9 @@ export function registerClientForSession(
   
   const clients = sessionClients.get(sessionSlug)!
   clients.add(clientMeta)
+  
+  // Обновляем метрику количества клиентов per session
+  recordCounter(`ws.session_clients.${sessionSlug}`, clients.size)
   
   console.log('[WS-SERVER] Client registered', {
     sessionSlug,
@@ -66,10 +80,23 @@ export function unregisterClient(sessionSlug: string, ws: WebSocket): void {
     
     if (clients.size === 0) {
       sessionClients.delete(sessionSlug)
+      // Удаляем метрику для сессии без клиентов
+      recordCounter(`ws.session_clients.${sessionSlug}`, 0)
+      // Очищаем очередь и дедупликацию для сессии без клиентов
+      sessionQueues.delete(sessionSlug)
+      recentUtteranceIds.delete(sessionSlug)
+      // Очищаем AI состояние для сессии (асинхронно, не блокируем)
+      import('./ai-coordinator.js').then(({ cleanupAiState }) => {
+        cleanupAiState(sessionSlug)
+      }).catch((error) => {
+        console.error('[WS-SERVER] Failed to cleanup AI state:', error)
+      })
       console.log('[WS-SERVER] Session has no more clients, removed from registry', {
         sessionSlug,
       })
     } else {
+      // Обновляем метрику количества клиентов per session
+      recordCounter(`ws.session_clients.${sessionSlug}`, clients.size)
       console.log('[WS-SERVER] Client unregistered', {
         sessionSlug,
         remainingClientsInSession: clients.size,
@@ -86,7 +113,75 @@ export function getClientsForSession(sessionSlug: string): Set<WsClientMeta> | u
 }
 
 /**
- * Отправляет транскрипт всем клиентам сессии.
+ * Обрабатывает очередь сообщений для сессии (асинхронно, не блокирует event loop).
+ */
+function processQueue(sessionSlug: string): void {
+  const queue = sessionQueues.get(sessionSlug)
+  if (!queue || queue.length === 0) {
+    return
+  }
+
+  const clients = sessionClients.get(sessionSlug)
+  if (!clients || clients.size === 0) {
+    // Нет клиентов - очищаем очередь
+    sessionQueues.delete(sessionSlug)
+    return
+  }
+
+  // Берем первое сообщение из очереди
+  const payload = queue.shift()!
+  const message = JSON.stringify(payload)
+  let sentCount = 0
+  const deadClients: WsClientMeta[] = []
+  const broadcastStart = Date.now()
+  
+  for (const clientMeta of clients) {
+    if (clientMeta.ws.readyState === WebSocket.OPEN) {
+      try {
+        clientMeta.ws.send(message)
+        sentCount++
+      } catch (error) {
+        console.error('[WS-SERVER] Failed to send transcript to client, removing dead client:', {
+          sessionSlug,
+          userId: clientMeta.userId,
+          error: error instanceof Error ? error.message : String(error),
+        })
+        recordCounter('ws.broadcast_errors_total')
+        deadClients.push(clientMeta)
+      }
+    } else {
+      deadClients.push(clientMeta)
+    }
+  }
+  
+  // Удаляем мертвых клиентов
+  for (const deadClient of deadClients) {
+    unregisterClient(sessionSlug, deadClient.ws)
+  }
+  
+  const broadcastEnd = Date.now()
+  const broadcastLatency = broadcastEnd - broadcastStart
+  
+  if (sentCount > 0) {
+    incrementMessagesSent()
+    // Записываем метрику задержки broadcast
+    recordLatency(`ws.session_broadcast_lag_ms.${sessionSlug}`, broadcastLatency)
+  }
+  
+  // Если очередь не пуста - обрабатываем следующее сообщение асинхронно
+  if (queue.length > 0) {
+    setImmediate(() => processQueue(sessionSlug))
+  } else {
+    // Очередь пуста - удаляем её
+    sessionQueues.delete(sessionSlug)
+  }
+}
+
+/**
+ * Отправляет транскрипт всем клиентам сессии с поддержкой backpressure и дедупликации.
+ * Автоматически удаляет мертвых клиентов при ошибках отправки.
+ * Использует асинхронные очереди для предотвращения блокировки event loop.
+ * Дедуплицирует final транскрипты для предотвращения дубликатов при реконнектах.
  */
 export function broadcastToSessionClients(sessionSlug: string, payload: any): void {
   const clients = sessionClients.get(sessionSlug)
@@ -98,37 +193,68 @@ export function broadcastToSessionClients(sessionSlug: string, payload: any): vo
     return
   }
 
-  const message = JSON.stringify(payload)
-  let sentCount = 0
+  // Дедупликация final транскриптов
+  const isFinal = payload.isFinal === true || payload.type === 'transcript_final'
+  const utteranceId = payload.utteranceId
   
-  for (const clientMeta of clients) {
-    if (clientMeta.ws.readyState === WebSocket.OPEN) {
-      try {
-        clientMeta.ws.send(message)
-        sentCount++
-      } catch (error) {
-        console.error('[WS-SERVER] Failed to send transcript to client:', {
-          sessionSlug,
-          userId: clientMeta.userId,
-          error,
-        })
-      }
+  if (isFinal && utteranceId) {
+    let utteranceIds = recentUtteranceIds.get(sessionSlug)
+    if (!utteranceIds) {
+      utteranceIds = new Set()
+      recentUtteranceIds.set(sessionSlug, utteranceIds)
+    }
+    
+    // Если final транскрипт уже был отправлен - пропускаем
+    if (utteranceIds.has(utteranceId)) {
+      console.log('[WS-SERVER] Duplicate final transcript, skipping', {
+        sessionSlug,
+        utteranceId,
+        textPreview: payload.text ? payload.text.slice(0, 80) : 'no text',
+      })
+      recordCounter('ws.duplicate_final_transcripts_skipped')
+      return
+    }
+    
+    // Добавляем utteranceId в Set
+    utteranceIds.add(utteranceId)
+    
+    // Ограничиваем размер Set (храним только последние MAX_UTTERANCE_IDS)
+    if (utteranceIds.size > MAX_UTTERANCE_IDS) {
+      // Удаляем самый старый (первый) элемент
+      const firstId = utteranceIds.values().next().value
+      utteranceIds.delete(firstId)
     }
   }
+
+  // Получаем или создаем очередь для сессии
+  let queue = sessionQueues.get(sessionSlug)
+  if (!queue) {
+    queue = []
+    sessionQueues.set(sessionSlug, queue)
+  }
   
-  if (sentCount > 0) {
-    incrementMessagesSent()
-    console.log('[WS-SERVER] Broadcast transcript', {
+  // Если очередь переполнена - дропаем самое старое сообщение
+  if (queue.length >= MAX_QUEUE_SIZE) {
+    const dropped = queue.shift()
+    recordCounter('ws.queue_drops_total')
+    console.warn('[WS-SERVER] Queue overflow, dropped message', {
       sessionSlug,
-      textPreview: payload.text ? payload.text.slice(0, 80) : 'no text',
-      clientsInSession: clients.size,
-      sent: sentCount,
+      droppedType: dropped?.type,
+      queueSize: queue.length,
+      maxQueueSize: MAX_QUEUE_SIZE,
     })
   }
+  
+  // Добавляем сообщение в очередь
+  queue.push(payload)
+  
+  // Асинхронно обрабатываем очередь (не блокируем event loop)
+  setImmediate(() => processQueue(sessionSlug))
 }
 
 /**
  * Отправляет сообщение об ошибке транскрипции всем клиентам сессии.
+ * Автоматически удаляет мертвых клиентов при ошибках отправки.
  */
 export function sendTranscriptionErrorToSessionClients(
   sessionSlug: string,
@@ -154,6 +280,7 @@ export function sendTranscriptionErrorToSessionClients(
 
   const errorMessage = JSON.stringify(errorPayload)
   let sentCount = 0
+  const deadClients: WsClientMeta[] = []
 
   for (const clientMeta of clients) {
     if (clientMeta.ws.readyState === WebSocket.OPEN) {
@@ -161,13 +288,23 @@ export function sendTranscriptionErrorToSessionClients(
         clientMeta.ws.send(errorMessage)
         sentCount++
       } catch (error) {
-        console.error('[WS-SERVER] Failed to send transcription error to client:', {
+        console.error('[WS-SERVER] Failed to send transcription error to client, removing dead client:', {
           sessionSlug,
           userId: clientMeta.userId,
-          error,
+          error: error instanceof Error ? error.message : String(error),
         })
+        // Помечаем клиента для удаления
+        deadClients.push(clientMeta)
       }
+    } else {
+      // Клиент не в состоянии OPEN - помечаем для удаления
+      deadClients.push(clientMeta)
     }
+  }
+
+  // Удаляем мертвых клиентов
+  for (const deadClient of deadClients) {
+    unregisterClient(sessionSlug, deadClient.ws)
   }
 
   if (sentCount > 0) {
@@ -176,6 +313,7 @@ export function sendTranscriptionErrorToSessionClients(
       reason,
       clientsInSession: clients.size,
       sent: sentCount,
+      removed: deadClients.length,
     })
   }
 }
@@ -339,19 +477,49 @@ export function handleClientConnection({ ws, req }: ClientConnectionOptions): vo
   })
 
   // Настраиваем ping/pong для поддержания соединения живым
-  // Более частый ping в начале для Railway proxy
+  // Heartbeat механизм с отслеживанием pong и таймаутами
+  let missedPongs = 0
+  const MAX_MISSED_PONGS = 3
+  const PING_INTERVAL_MS = 30000 // Ping каждые 30 секунд
+  const HEARTBEAT_TIMEOUT_MS = PING_INTERVAL_MS * MAX_MISSED_PONGS // 90 секунд
+  
   const pingInterval = setInterval(() => {
     if (ws.readyState === WebSocket.OPEN) {
       try {
         ws.ping()
+        missedPongs++
+        
+        // Если клиент не отвечает на pings - закрываем соединение
+        if (missedPongs >= MAX_MISSED_PONGS) {
+          console.warn('[WS-SERVER] Heartbeat timeout, closing connection', {
+            sessionSlug,
+            identity: participantIdentity,
+            missedPongs,
+            maxMissedPongs: MAX_MISSED_PONGS,
+          })
+          clearInterval(pingInterval)
+          ws.close(1008, 'Heartbeat timeout')
+          unregisterClient(sessionSlug, ws)
+          decrementConnections()
+          recordError('Heartbeat timeout')
+          recordCounter('ws.heartbeat_timeouts_total')
+          return
+        }
       } catch (error) {
         console.error('[WS-SERVER] Failed to send ping:', error)
         clearInterval(pingInterval)
+        unregisterClient(sessionSlug, ws)
+        decrementConnections()
       }
     } else {
       clearInterval(pingInterval)
     }
-  }, 25000) // Ping каждые 25 секунд (стандарт RFC рекомендует 20-30 секунд)
+  }, PING_INTERVAL_MS)
+  
+  // Отслеживаем pong для сброса счетчика missed pongs
+  ws.on('pong', () => {
+    missedPongs = 0 // Сбрасываем счетчик при получении pong
+  })
 
   // Увеличиваем счетчик активных соединений
   incrementConnections()

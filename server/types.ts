@@ -28,7 +28,7 @@ export type ServerTranscriptionMessage =
       ts?: number
     }
   | {
-      type: 'transcript' | 'transcription'
+      type: 'transcript' | 'transcript_partial' | 'transcript_final' | 'transcription'
       sessionSlug?: string
       userId?: string
       utteranceId?: string

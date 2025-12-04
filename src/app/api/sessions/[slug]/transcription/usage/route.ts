@@ -5,7 +5,7 @@ import { getSessionBySlug } from '@/modules/core/sessions/application/getSession
 import { getTranscriptionUsageBySession } from '@/modules/core/sessions/infra/transcription/transcription-usage.repository'
 
 interface Params {
-  params: { slug: string }
+  params: Promise<{ slug: string }>
 }
 
 /**
@@ -20,7 +20,7 @@ export async function GET(req: Request, { params }: Params) {
       return new NextResponse('Unauthorized', { status: 401 })
     }
 
-    const { slug } = params
+    const { slug } = await params
 
     const session = await getSessionBySlug({ slug })
     if (!session) {

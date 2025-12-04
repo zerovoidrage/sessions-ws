@@ -1,7 +1,7 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useTransition, useOptimistic } from 'react'
 import { Button } from '@/shared/ui/button'
 import { type UISpace } from '@/shared/ui/space-switcher/SpaceSwitcher'
 import { Avatar } from '@/shared/ui/avatar/Avatar'
@@ -12,6 +12,7 @@ import { cn } from '@/lib/utils'
 import type { Session } from '@/modules/core/sessions/domain/session.types'
 import type { DomainUser } from '@/modules/core/identity/domain/user.types'
 import type { Space } from '@/modules/core/spaces/domain/space.types'
+import { createSessionAction, deleteSessionAction } from './actions'
 
 interface SessionsPageClientProps {
   user: DomainUser
@@ -29,7 +30,14 @@ export function SessionsPageClient({
   sessions: initialSessions,
 }: SessionsPageClientProps) {
   const router = useRouter()
-  const [isCreating, setIsCreating] = useState(false)
+  const [isPending, startTransition] = useTransition()
+  
+  // Optimistic updates for sessions list
+  const [optimisticSessions, addOptimisticSession] = useOptimistic(
+    initialSessions,
+    (state, newSession: Session) => [newSession, ...state]
+  )
+  
   const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null)
   const [sessions, setSessions] = useState<Session[]>(initialSessions)
   const [currentUser, setCurrentUser] = useState<DomainUser>(user)
@@ -145,26 +153,26 @@ export function SessionsPageClient({
   }, [initialSessions])
 
   const handleCreateSession = async () => {
-    try {
-      setIsCreating(true)
-      const res = await fetch('/api/sessions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ spaceId: activeSpaceId }),
-      })
+    startTransition(async () => {
+      try {
+        const formData = new FormData()
+        formData.append('spaceId', activeSpaceId)
+        
+        const result = await createSessionAction(formData)
+        
+        if (!result.success) {
+          alert(result.error || 'Error creating session')
+          return
+        }
 
-      if (!res.ok) {
-        throw new Error('Failed to create session')
+        if (result.slug) {
+          router.push(`/session/${result.slug}`)
+        }
+      } catch (e) {
+        console.error(e)
+        alert('Error creating session')
       }
-
-      const data = await res.json()
-      router.push(`/session/${data.slug}`)
-    } catch (e) {
-      console.error(e)
-      alert('Error creating session')
-    } finally {
-      setIsCreating(false)
-    }
+    })
   }
 
   const handleSelectSpace = async (spaceId: string) => {
@@ -250,17 +258,30 @@ export function SessionsPageClient({
 
     const sessionToDelete = session // Сохраняем для отката
 
-    try {
-      isDeletingRef.current = true // Устанавливаем флаг удаления
-      setDeletingSessionId(session.id)
-      // Оптимистичное обновление
-      setSessions((prev) => prev.filter((s) => s.id !== session.id))
-      
-      const res = await fetch(`/api/sessions/${session.slug}`, {
-        method: 'DELETE',
-      })
+    startTransition(async () => {
+      try {
+        isDeletingRef.current = true // Устанавливаем флаг удаления
+        setDeletingSessionId(session.id)
+        
+        // Optimistic update
+        setSessions((prev) => prev.filter((s) => s.id !== session.id))
+        
+        const result = await deleteSessionAction(session.slug)
 
-      if (!res.ok) {
+        if (!result.success) {
+          // Откатываем изменения при ошибке
+          setSessions((prev) => {
+            const updated = [...prev, sessionToDelete]
+            return updated.sort((a, b) => 
+              new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+            )
+          })
+          alert(result.error || 'Failed to delete session')
+        }
+
+        // Успешное удаление - оставляем оптимистичное обновление
+      } catch (e) {
+        console.error('Error deleting session:', e)
         // Откатываем изменения при ошибке
         setSessions((prev) => {
           const updated = [...prev, sessionToDelete]
@@ -268,22 +289,15 @@ export function SessionsPageClient({
             new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
           )
         })
-        const errorText = await res.text()
-        throw new Error(errorText || 'Failed to delete session')
+        alert(e instanceof Error ? e.message : 'Error deleting session')
+      } finally {
+        setDeletingSessionId(null)
+        // Сбрасываем флаг удаления с небольшой задержкой, чтобы избежать race condition
+        setTimeout(() => {
+          isDeletingRef.current = false
+        }, 500)
       }
-
-      // Успешное удаление - оставляем оптимистичное обновление
-      // Не делаем лишний fetch, чтобы избежать race condition
-    } catch (e) {
-      console.error('Error deleting session:', e)
-      alert(e instanceof Error ? e.message : 'Error deleting session')
-    } finally {
-      setDeletingSessionId(null)
-      // Сбрасываем флаг удаления с небольшой задержкой, чтобы избежать race condition
-      setTimeout(() => {
-        isDeletingRef.current = false
-      }, 500)
-    }
+    })
   }
 
   const handleKillAllSessions = async () => {
@@ -389,8 +403,8 @@ export function SessionsPageClient({
       </div>
 
       <div className="fixed bottom-0 left-0 right-0 flex justify-center pb-8">
-        <Button onClick={handleCreateSession} disabled={isCreating} variant="primary"  size="lg">
-          {isCreating ? 'Creating...' : '+ session'}
+        <Button onClick={handleCreateSession} disabled={isPending} variant="primary"  size="lg">
+          {isPending ? 'Creating...' : '+ session'}
         </Button>
       </div>
 

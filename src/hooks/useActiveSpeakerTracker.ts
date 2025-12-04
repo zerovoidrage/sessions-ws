@@ -37,27 +37,15 @@ export function useActiveSpeakerTracker({
     }
 
     // Используем WS_SERVER_URL для HTTP API запросов
-    // Для локальной разработки: http://localhost:3001
-    // Для production: из NEXT_PUBLIC_WS_HOST или NEXT_PUBLIC_WS_SERVER_URL
-    const wsHost = process.env.NEXT_PUBLIC_WS_HOST
-    const wsServerUrl = process.env.NEXT_PUBLIC_WS_SERVER_URL || process.env.WS_SERVER_URL
-    
-    let apiBaseUrl = wsServerUrl
-    
-    if (!apiBaseUrl && wsHost) {
-      // Если есть NEXT_PUBLIC_WS_HOST, формируем URL
-      const cleanHost = wsHost.replace(/^https?:\/\//, '').replace(/\/$/, '')
-      const isRemoteHost = cleanHost !== 'localhost' && !cleanHost.startsWith('127.0.0.1') && !cleanHost.startsWith('192.168.')
-      const protocol = isRemoteHost ? 'https' : 'http'
-      apiBaseUrl = `${protocol}://${cleanHost}`
+    // ВАЖНО: Локально WebSocket/RTMP сервер НЕ запускается, всегда используется продовый Railway сервер
+    const wsServerUrl = process.env.NEXT_PUBLIC_WS_SERVER_URL
+    if (!wsServerUrl) {
+      console.error('[useActiveSpeakerTracker] NEXT_PUBLIC_WS_SERVER_URL is required')
+      return
     }
     
-    if (!apiBaseUrl) {
-      // Fallback
-      apiBaseUrl = typeof window !== 'undefined' && window.location.protocol === 'https:'
-        ? 'https://ws-production-dbcc.up.railway.app'
-        : 'http://localhost:3001'
-    }
+    // Используем HTTP версию URL (не WebSocket)
+    const apiBaseUrl = wsServerUrl.replace(/^ws/, 'http').replace(/^wss/, 'https')
 
     // Функция для определения текущего активного спикера
     const getActiveSpeaker = (): { identity: string; name?: string } | null => {

@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { startTranscriptionServiceEndpoint } from '@/modules/core/sessions/api/startTranscriptionServiceEndpoint'
 
 interface Params {
-  params: { slug: string }
+  params: Promise<{ slug: string }>
 }
 
 /**
@@ -15,7 +15,7 @@ interface Params {
  */
 export async function POST(req: Request, { params }: Params) {
   try {
-    const { slug } = params
+    const { slug } = await params
 
     const result = await startTranscriptionServiceEndpoint(slug)
 

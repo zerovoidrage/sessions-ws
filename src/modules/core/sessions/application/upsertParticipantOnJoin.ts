@@ -44,12 +44,13 @@ export async function upsertParticipantOnJoin(
     })
 
     // Запускаем серверную транскрипцию при первом подключении участника
-    // Используем HTTP API вызов к WebSocket серверу
-    // В моносервисе Next.js и WS сервер работают на одном порту (PORT), поэтому используем localhost или тот же URL
+    // Используем HTTP API вызов к WebSocket серверу на Railway
+    // ВАЖНО: Локально WebSocket/RTMP сервер НЕ запускается, всегда используется продовый Railway сервер
     try {
-      // WS/RTMP сервер работает отдельно от Next.js
-      // Если WS_SERVER_URL не установлен, используем переменную окружения или дефолтный URL
-      const wsServerUrl = process.env.WS_SERVER_URL || process.env.NEXT_PUBLIC_WS_SERVER_URL || 'http://localhost:3000'
+      const wsServerUrl = process.env.WS_SERVER_URL || process.env.NEXT_PUBLIC_WS_SERVER_URL
+      if (!wsServerUrl) {
+        throw new Error('WS_SERVER_URL or NEXT_PUBLIC_WS_SERVER_URL environment variable is required')
+      }
       console.log(`[upsertParticipantOnJoin] Attempting to start server transcription for session ${input.sessionId} via ${wsServerUrl}/api/transcription/start`, {
         envWS_SERVER_URL: process.env.WS_SERVER_URL,
         envNEXT_PUBLIC_WS_SERVER_URL: process.env.NEXT_PUBLIC_WS_SERVER_URL,
@@ -73,11 +74,9 @@ export async function upsertParticipantOnJoin(
     } catch (error) {
       console.error(`[upsertParticipantOnJoin] ❌ Failed to start server transcription for session ${input.sessionId}:`, error)
       if (error instanceof Error) {
-        const wsServerUrl = process.env.WS_SERVER_URL || process.env.NEXT_PUBLIC_WS_SERVER_URL || 'http://localhost:3000'
         console.error(`[upsertParticipantOnJoin] Error details:`, {
           message: error.message,
           stack: error.stack,
-          wsServerUrl,
         })
       }
       // Не прерываем процесс - транскрипция не критична для подключения участника
@@ -89,26 +88,31 @@ export async function upsertParticipantOnJoin(
     // ВАЖНО: Если сессия уже LIVE, но транскрипция не запущена, попробуем запустить её
     // Это может произойти, если сервер перезапустился или транскрипция упала
     try {
-      const wsServerUrl = process.env.WS_SERVER_URL || process.env.NEXT_PUBLIC_WS_SERVER_URL || 'http://localhost:3000'
-      console.log(`[upsertParticipantOnJoin] Session ${input.sessionId} is already LIVE, checking if transcription is active...`, {
-        envWS_SERVER_URL: process.env.WS_SERVER_URL,
-        envNEXT_PUBLIC_WS_SERVER_URL: process.env.NEXT_PUBLIC_WS_SERVER_URL,
-        finalUrl: wsServerUrl,
-      })
-      
-      // Проверяем, активна ли транскрипция, делая запрос на start (он идемпотентный)
-      const response = await fetch(`${wsServerUrl}/api/transcription/start`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId: input.sessionId, sessionSlug: session.slug }),
-      })
-      
-      if (response.ok) {
-        const result = await response.json().catch(() => ({}))
-        console.log(`[upsertParticipantOnJoin] ✅ Transcription status checked/started for LIVE session ${input.sessionId}`, result)
+      const wsServerUrl = process.env.WS_SERVER_URL || process.env.NEXT_PUBLIC_WS_SERVER_URL
+      if (!wsServerUrl) {
+        console.warn('[upsertParticipantOnJoin] Cannot check transcription status: WS_SERVER_URL is not set')
+        // Продолжаем выполнение - participant будет создан ниже
       } else {
-        const errorText = await response.text().catch(() => response.statusText)
-        console.warn(`[upsertParticipantOnJoin] Transcription start returned ${response.status} for LIVE session: ${errorText}`)
+        console.log(`[upsertParticipantOnJoin] Session ${input.sessionId} is already LIVE, checking if transcription is active...`, {
+          envWS_SERVER_URL: process.env.WS_SERVER_URL,
+          envNEXT_PUBLIC_WS_SERVER_URL: process.env.NEXT_PUBLIC_WS_SERVER_URL,
+          finalUrl: wsServerUrl,
+        })
+        
+        // Проверяем, активна ли транскрипция, делая запрос на start (он идемпотентный)
+        const response = await fetch(`${wsServerUrl}/api/transcription/start`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sessionId: input.sessionId, sessionSlug: session.slug }),
+        })
+        
+        if (response.ok) {
+          const result = await response.json().catch(() => ({}))
+          console.log(`[upsertParticipantOnJoin] ✅ Transcription status checked/started for LIVE session ${input.sessionId}`, result)
+        } else {
+          const errorText = await response.text().catch(() => response.statusText)
+          console.warn(`[upsertParticipantOnJoin] Transcription start returned ${response.status} for LIVE session: ${errorText}`)
+        }
       }
     } catch (error) {
       console.warn(`[upsertParticipantOnJoin] Failed to check/start transcription for LIVE session ${input.sessionId}:`, error)

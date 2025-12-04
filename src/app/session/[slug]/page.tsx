@@ -1,10 +1,20 @@
-import { getSessionBySlug } from '@/modules/core/sessions/application/getSessionBySlug'
+import { Suspense } from 'react'
+import { getSessionBySlugCached } from '@/modules/core/sessions/application/session.loaders'
 import { getInitialAiInsights } from './getInitialAiInsights'
 import { SessionPageClient } from './SessionPageClient'
+import { SessionMetaPanel } from './SessionMetaPanel'
 import { redirect } from 'next/navigation'
 
 interface PageProps {
-  params: { slug: string }
+  params: Promise<{ slug: string }>
+}
+
+function SessionMetaSkeleton() {
+  return (
+    <div className="animate-pulse">
+      <div className="h-8 w-64 bg-onsurface-700 rounded-lg" />
+    </div>
+  )
 }
 
 /**
@@ -15,14 +25,14 @@ interface PageProps {
  * This eliminates the "empty state flash" on page load.
  */
 export default async function SessionPage({ params }: PageProps) {
-  const slug = typeof params.slug === 'string' ? params.slug : params.slug?.[0] || ''
+  const { slug } = await params
 
   if (!slug) {
     redirect('/sessions')
   }
 
-  // Fetch session from DB on server (includes AI fields)
-  const session = await getSessionBySlug({ slug })
+  // Fetch session from DB on server using cached loader (includes AI fields)
+  const session = await getSessionBySlugCached(slug)
 
   if (!session) {
     redirect('/sessions')
@@ -43,7 +53,14 @@ export default async function SessionPage({ params }: PageProps) {
     } : null,
   })
 
-  // Pass session slug and initial AI insights to client component
-  // Client component will use these immediately on first render (no fetch delay)
-  return <SessionPageClient sessionSlug={slug} initialAiInsights={initialAiInsights} />
+  return (
+    <>
+      <Suspense fallback={<SessionMetaSkeleton />}>
+        <SessionMetaPanel session={session} />
+      </Suspense>
+      
+      {/* Client component for real-time LiveKit + WebSocket */}
+      <SessionPageClient sessionSlug={slug} initialAiInsights={initialAiInsights} />
+    </>
+  )
 }

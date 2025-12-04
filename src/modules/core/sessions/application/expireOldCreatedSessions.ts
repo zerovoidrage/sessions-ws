@@ -1,3 +1,4 @@
+// Expire old created sessions application logic
 import { findOldCreatedSessions, expireCreatedSession } from '../infra/prisma/sessions.repository'
 
 /**

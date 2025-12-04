@@ -1,3 +1,4 @@
+// Get current user application logic
 import { getServerSession } from 'next-auth'
 import { authOptions } from '../infra/auth.config'
 import { findById } from '../infra/user.repository'

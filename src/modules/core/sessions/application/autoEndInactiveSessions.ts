@@ -1,3 +1,4 @@
+// Auto-end inactive sessions application logic
 import { findInactiveLiveSessions, autoEndSession } from '../infra/prisma/sessions.repository'
 import { scheduleSessionForAnalysis } from './scheduleSessionForAnalysis'
 

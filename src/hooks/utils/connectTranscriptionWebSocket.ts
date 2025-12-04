@@ -91,29 +91,33 @@ export async function connectTranscriptionWebSocket(
           // Коды закрытия WebSocket:
           // 1000 - нормальное закрытие
           // 1001 - ушел (going away)
+          // 1005 - No Status Received (может быть 0 в некоторых браузерах)
           // 1006 - ненормальное закрытие (сеть, таймаут)
           // 1008 - политика нарушена (неверный токен, авторизация)
           // 1011 - внутренняя ошибка сервера
-          const isError = event.code !== 1000 && event.code !== 1001
+          const code = event.code || 0
+          const reason = event.reason || (code === 1005 ? 'No Status Received' : 'no reason')
+          const wasClean = event.wasClean ?? false
+          const isError = code !== 1000 && code !== 1001 && code !== 0
+          
+          const logDetails = {
+            code,
+            codeMeaning: getCloseCodeMeaning(code),
+            reason,
+            wasClean,
+            url: wsUrl.replace(/token=[^&]+/, 'token=***'),
+            readyState: ws.readyState,
+            attempt: attempt + 1,
+          }
           
           if (isError) {
-            console.error(`[WebSocket] Connection closed with error (attempt ${attempt + 1}):`, {
-              code: event.code,
-              reason: event.reason || 'no reason',
-              wasClean: event.wasClean,
-              url: wsUrl.replace(/token=[^&]+/, 'token=***'),
-              codeMeaning: getCloseCodeMeaning(event.code),
-            })
-            reject(new Error(`WebSocket closed unexpectedly: code=${event.code}, reason=${event.reason || 'unknown'}`))
+            console.error(`[WebSocket] Connection closed with error (attempt ${attempt + 1}):`, logDetails)
+            reject(new Error(`WebSocket closed unexpectedly: code=${code}, reason=${reason}`))
           } else {
-            // Нормальное закрытие - логируем как info, не error
-            console.log(`[WebSocket] Connection closed normally (attempt ${attempt + 1}):`, {
-              code: event.code,
-              reason: event.reason || 'no reason',
-              wasClean: event.wasClean,
-            })
+            // Нормальное закрытие или закрытие без кода (может быть нормальным в некоторых случаях)
+            console.log(`[WebSocket] Connection closed (attempt ${attempt + 1}):`, logDetails)
             // Для нормального закрытия тоже реджектим, чтобы retry сработал
-            reject(new Error(`WebSocket closed: code=${event.code}`))
+            reject(new Error(`WebSocket closed: code=${code}`))
           }
         }
       })

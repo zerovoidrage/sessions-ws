@@ -14,6 +14,8 @@ import {
 import { Button } from '../button'
 import { cn } from '@/lib/utils'
 
+import { EqualizerIcon } from '../equalizer-icon/EqualizerIcon'
+
 export interface ControlBarProps {
   onMicrophoneToggle?: (enabled: boolean) => void
   onCameraToggle?: (enabled: boolean) => void
@@ -21,6 +23,7 @@ export interface ControlBarProps {
   onChatToggle?: () => void
   onLeave?: () => void
   microphoneEnabled?: boolean
+  microphoneConnecting?: boolean
   cameraEnabled?: boolean
   screenShareEnabled?: boolean
   isCreator?: boolean
@@ -34,20 +37,38 @@ export function ControlBar({
   onChatToggle,
   onLeave,
   microphoneEnabled = false,
+  microphoneConnecting = false,
   cameraEnabled = false,
   screenShareEnabled = false,
   isCreator = false,
   className,
 }: ControlBarProps) {
+  const micState = microphoneConnecting
+    ? 'connecting'
+    : microphoneEnabled
+    ? 'active'
+    : 'muted'
+
   return (
     <div className={cn('flex items-center justify-center gap-3', className)}>
       {onMicrophoneToggle && (
         <Button
-          variant={microphoneEnabled ? "primary" : "secondary"}
+          variant={micState === 'active' ? "primary" : "secondary"}
           size="md"
-          onClick={() => onMicrophoneToggle(!microphoneEnabled)}
+          onClick={() => !microphoneConnecting && onMicrophoneToggle(!microphoneEnabled)}
+          disabled={microphoneConnecting}
+          className={cn(
+            microphoneConnecting && 'cursor-default animate-pulse-opacity'
+          )}
+          title={microphoneConnecting ? 'Connecting...' : undefined}
         >
-          {microphoneEnabled ? "muted" : "unmuted"}
+          {micState === 'connecting' ? (
+            <EqualizerIcon size={20} className="text-current" />
+          ) : microphoneEnabled ? (
+            "muted"
+          ) : (
+            "unmuted"
+          )}
         </Button>
       )}
 

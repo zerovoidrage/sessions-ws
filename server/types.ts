@@ -48,6 +48,13 @@ export type ServerTranscriptionMessage =
       userId?: string
       ts?: number
     }
+  | {
+      type: 'stt_status'
+      status: 'ready' | 'connecting' | 'stopped'
+      sessionSlug?: string
+      timestamp?: number
+      ts?: number
+    }
   | (Record<string, any> & { type?: string }) // Fallback для неизвестных форматов
 
 /**

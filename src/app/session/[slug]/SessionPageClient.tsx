@@ -310,6 +310,10 @@ function SessionContentInner({
   const [isPending, startTransition] = useTransition()
   // Используем контекст транскрипции
   const { transcripts, addMessage } = useTranscriptContext()
+  
+  // STT readiness: отслеживаем первый partial transcript
+  // Начинаем с false, если есть transcriptionToken (значит транскрипция должна работать)
+  const [sttReady, setSttReady] = useState(!transcriptionToken)
 
   // AI Session Engine - получаем initialInsights из пропсов (гидрация из БД через серверный рендер)
   // topics[] is the single source of truth for both CurrentTopicBubble and TopicToastStack
@@ -431,7 +435,27 @@ function SessionContentInner({
 
   // Устанавливаем callback для транскриптов и запускаем транскрипцию
   useEffect(() => {
-    transcription.setOnTranscriptCallback(addMessage)
+    // Wrapper для addMessage, который также отслеживает stt_status и первый partial (fallback)
+    const wrappedAddMessage = (message: any) => {
+      // Обрабатываем stt_status: ready - основной способ определения готовности
+      if (message.type === 'stt_status' && message.status === 'ready') {
+        console.log('[SessionContent] STT ready: stt_status: ready received')
+        setSttReady(true)
+        // stt_status не является транскриптом, не передаем в addMessage
+        return
+      }
+      
+      // Fallback: если stt_status не пришел, но пришел первый partial - считаем готовым
+      if (!sttReady && !message.isFinal && (message.type === 'transcript_partial' || message.type === 'transcript')) {
+        console.log('[SessionContent] STT ready: first partial transcript received (fallback)')
+        setSttReady(true)
+      }
+      
+      // Передаем только транскрипты в addMessage
+      addMessage(message)
+    }
+    
+    transcription.setOnTranscriptCallback(wrappedAddMessage)
     // Запускаем транскрипцию автоматически при подключении
     if (isConnected && connectionState === ConnectionState.Connected) {
       transcription.start()
@@ -440,7 +464,14 @@ function SessionContentInner({
       transcription.setOnTranscriptCallback(null)
       transcription.stop()
     }
-  }, [transcription, addMessage, isConnected, connectionState])
+  }, [transcription, addMessage, isConnected, connectionState, sttReady])
+  
+  // Сбрасываем sttReady при отключении или смене сессии
+  useEffect(() => {
+    if (!isConnected || connectionState !== ConnectionState.Connected) {
+      setSttReady(!transcriptionToken) // Сбрасываем только если есть transcriptionToken
+    }
+  }, [isConnected, connectionState, transcriptionToken])
 
   // Отслеживание активного спикера
   useActiveSpeakerTracker({
@@ -632,7 +663,11 @@ function SessionContentInner({
       )}
 
       {/* Current Topic Bubble - Bottom Left (expandable with history) */}
-      <CurrentTopicBubble topic={currentTopicLabel} topics={topics} />
+      {!sttReady && transcriptionToken ? (
+        <CurrentTopicBubble topic="Connecting to voice…" topics={[]} variant="connecting" />
+      ) : (
+        <CurrentTopicBubble topic={currentTopicLabel} topics={topics} />
+      )}
 
       <div className="flex-1 min-w-0 relative">
         <VideoGrid 
@@ -647,6 +682,7 @@ function SessionContentInner({
           onScreenShareToggle={handleScreenShareToggle}
           onLeave={handleLeave}
           microphoneEnabled={mediaControls.micEnabled}
+          microphoneConnecting={!sttReady && !!transcriptionToken}
           cameraEnabled={mediaControls.cameraEnabled}
           screenShareEnabled={mediaControls.screenShareEnabled}
           isCreator={isCreator}

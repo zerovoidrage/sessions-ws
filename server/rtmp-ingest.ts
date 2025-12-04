@@ -158,6 +158,23 @@ class RTMPIngestImpl extends EventEmitter implements RTMPIngest {
       // Gladia bridge создается сразу, но WebSocket подключится автоматически
       this.gladiaBridge = await createGladiaBridge()
       this.gladiaBridge.onTranscript((event) => this.handleTranscript(event))
+      
+      // Уведомляем клиентов о готовности STT pipeline
+      // Это происходит когда Gladia WebSocket открыт и готов принимать аудио
+      this.gladiaBridge.onReady(() => {
+        console.log(`[RTMPIngest] 🎤 STT pipeline ready for session ${this.config.sessionSlug}`)
+        
+        // Отправляем статус готовности всем клиентам сессии
+        const payload = {
+          type: 'stt_status',
+          status: 'ready',
+          sessionSlug: this.config.sessionSlug,
+          timestamp: Date.now(),
+        }
+        
+        broadcastToSessionClients(this.config.sessionSlug, payload)
+        console.log(`[RTMPIngest] ✅ Broadcasted stt_status: ready to clients for session ${this.config.sessionSlug}`)
+      })
 
       // 4. FFmpeg будет запущен только когда LiveKit Egress подключится (в onStreamStart)
       // Не запускаем его здесь - ждем реального RTMP потока

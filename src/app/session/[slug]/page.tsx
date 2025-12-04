@@ -1,8 +1,8 @@
 import { Suspense } from 'react'
 import { getSessionBySlugCached } from '@/modules/core/sessions/application/session.loaders'
 import { getInitialAiInsights } from './getInitialAiInsights'
-import { SessionPageClient } from './SessionPageClient'
 import { SessionMetaPanel } from './SessionMetaPanel'
+import { SessionPageClientWrapper } from './SessionPageClientWrapper'
 import { redirect } from 'next/navigation'
 
 interface PageProps {
@@ -60,7 +60,9 @@ export default async function SessionPage({ params }: PageProps) {
       </Suspense>
       
       {/* Client component for real-time LiveKit + WebSocket */}
-      <SessionPageClient sessionSlug={slug} initialAiInsights={initialAiInsights} />
+      {/* Используем wrapper с ssr: false для избежания ошибки useSession */}
+      {/* SessionMetaPanel выше рендерится на сервере (SSR) */}
+      <SessionPageClientWrapper sessionSlug={slug} initialAiInsights={initialAiInsights} />
     </>
   )
 }

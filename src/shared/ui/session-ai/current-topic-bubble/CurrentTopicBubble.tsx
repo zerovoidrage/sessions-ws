@@ -17,10 +17,12 @@ import type { AiTopic } from '@/modules/core/intelligence/domain/topic.types'
 interface CurrentTopicBubbleProps {
   topic: string | null
   topics: AiTopic[]
+  variant?: 'default' | 'connecting'
 }
 
-export function CurrentTopicBubble({ topic, topics }: CurrentTopicBubbleProps) {
+export function CurrentTopicBubble({ topic, topics, variant = 'default' }: CurrentTopicBubbleProps) {
   const [isExpanded, setIsExpanded] = useState(false)
+  const isConnecting = variant === 'connecting'
 
   // Все хуки должны быть до условных возвратов
   const historyTopics = useMemo(
@@ -33,7 +35,7 @@ export function CurrentTopicBubble({ topic, topics }: CurrentTopicBubbleProps) {
 
   const hasHistory = historyTopics.length > 0
   // Показываем стрелку и возможность развернуть, если есть хотя бы одна тема
-  const canExpand = topics.length > 0
+  const canExpand = topics.length > 0 && !isConnecting
 
   // Точный расчет ширины: только реальный контент без дублирования padding
   const expandedWidth = useMemo(() => {
@@ -65,11 +67,16 @@ export function CurrentTopicBubble({ topic, topics }: CurrentTopicBubbleProps) {
   }, [topic])
 
   // Условные возвраты после всех хуков
-  if (!topic || topic.length < 3) return null
+  // Для connecting variant показываем всегда, даже без topic
+  if (!isConnecting && (!topic || topic.length < 3)) return null
 
-  const genericTopics = ['conversation', 'general chat', 'discussion', 'talk', 'chat']
-  const isGeneric = genericTopics.some(g => topic.toLowerCase().includes(g.toLowerCase()))
-  if (isGeneric && topic.length < 10) return null
+  if (!isConnecting) {
+    const genericTopics = ['conversation', 'general chat', 'discussion', 'talk', 'chat']
+    const isGeneric = genericTopics.some(g => topic.toLowerCase().includes(g.toLowerCase()))
+    if (isGeneric && topic.length < 10) return null
+  }
+
+  const displayText = isConnecting ? 'Connecting to voice…' : topic
 
   const handleToggle = () => {
     if (!canExpand) return
@@ -97,7 +104,8 @@ export function CurrentTopicBubble({ topic, topics }: CurrentTopicBubbleProps) {
           'backdrop-blur-2xl',
           'overflow-hidden rounded-[24px]',
           'transition-colors duration-200',
-          isExpanded && canExpand ? 'cursor-pointer' : ''
+          isExpanded && canExpand ? 'cursor-pointer' : '',
+          isConnecting && 'animate-pulse-opacity'
         )}
       >
         {/* История — наверху, растёт вверх */}
@@ -236,8 +244,8 @@ export function CurrentTopicBubble({ topic, topics }: CurrentTopicBubbleProps) {
               />
             </div>
             <span className="text-xs text-white-900 truncate">
-              <span className="text-white-700">Discuss: </span>
-              {topic}
+              {!isConnecting && <span className="text-white-700">Discuss: </span>}
+              {displayText}
             </span>
           </div>
 

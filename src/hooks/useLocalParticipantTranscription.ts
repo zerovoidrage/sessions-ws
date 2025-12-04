@@ -762,6 +762,28 @@ export function useLocalParticipantTranscription({
             return
           }
 
+          // 1.5️⃣ STT status messages (готовность pipeline)
+          if (message.type === 'stt_status') {
+            console.log('[Transcription] STT status received', {
+              status: message.status,
+              sessionSlug: message.sessionSlug,
+              timestamp: message.timestamp || message.ts,
+            })
+            // Передаем stt_status напрямую через callback
+            // В SessionContentInner мы обработаем это в wrappedAddMessage
+            if (onTranscriptCallbackRef.current) {
+              // Передаем stt_status как объект с type и status
+              // wrappedAddMessage в SessionContentInner проверит message.type === 'stt_status'
+              onTranscriptCallbackRef.current({
+                type: 'stt_status',
+                status: message.status,
+                sessionSlug: message.sessionSlug,
+                timestamp: message.timestamp || message.ts,
+              } as any)
+            }
+            return
+          }
+
           // 2️⃣ Ошибки сервера
           if (message.type === 'error') {
             const errorMsg = message.error || message.message || 'Unknown server error'

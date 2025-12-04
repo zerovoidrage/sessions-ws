@@ -75,6 +75,17 @@ export interface ErrorMessage {
 }
 
 /**
+ * Сообщение о статусе STT pipeline.
+ */
+export interface SttStatusMessage {
+  type: 'stt_status'
+  status: 'ready' | 'connecting' | 'stopped'
+  sessionSlug?: string
+  timestamp?: number
+  ts?: number
+}
+
+/**
  * Объединенный тип всех возможных сообщений от сервера.
  */
 export type ServerTranscriptionMessage =
@@ -83,6 +94,7 @@ export type ServerTranscriptionMessage =
   | TranscriptPartialMessage
   | TranscriptFinalMessage
   | ErrorMessage
+  | SttStatusMessage
   | (Record<string, any> & { type?: string }) // Fallback для неизвестных форматов
 
 

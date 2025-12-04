@@ -42,6 +42,7 @@ export interface GladiaBridge {
   sendAudio(chunk: ArrayBuffer | Buffer): void
   close(): Promise<void>
   onTranscript(cb: (event: TranscriptEvent) => void): void
+  onReady(cb: () => void): void // Callback для уведомления о готовности STT pipeline
 }
 
 /**
@@ -157,6 +158,7 @@ export async function createGladiaBridge(): Promise<GladiaBridge> {
   const gladiaWs = new WebSocket(websocketUrl)
   
   let transcriptCallback: ((event: TranscriptEvent) => void) | null = null
+  let readyCallback: (() => void) | null = null
   let isReady = false
   let isClosed = false
   let lastMessageTs: number | null = null
@@ -165,6 +167,13 @@ export async function createGladiaBridge(): Promise<GladiaBridge> {
   gladiaWs.on('open', () => {
     console.log('[GladiaBridge] ✅ WebSocket connected to Gladia Live v2')
     isReady = true
+    
+    // Уведомляем о готовности STT pipeline
+    // Это означает, что если пользователь заговорит сейчас, Gladia услышит и обработает
+    if (readyCallback) {
+      console.log('[GladiaBridge] 🎤 STT pipeline ready - notifying callback')
+      readyCallback()
+    }
   })
   
   gladiaWs.on('message', (data: Buffer | string) => {
@@ -344,6 +353,16 @@ export async function createGladiaBridge(): Promise<GladiaBridge> {
     onTranscript(cb: (event: TranscriptEvent) => void) {
       // Аккуратно заменяем callback без накопления
       transcriptCallback = isClosed ? null : cb
+    },
+    onReady(cb: () => void) {
+      // Устанавливаем callback для уведомления о готовности
+      readyCallback = isClosed ? null : cb
+      
+      // Если уже готов, вызываем callback сразу
+      if (isReady && !isClosed) {
+        console.log('[GladiaBridge] STT already ready - calling callback immediately')
+        readyCallback()
+      }
     },
   }
 }

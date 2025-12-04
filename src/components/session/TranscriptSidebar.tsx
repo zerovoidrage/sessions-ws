@@ -1,4 +1,4 @@
-// src/components/call/TranscriptSidebar.tsx
+// src/components/session/TranscriptSidebar.tsx
 // Оптимизированный TranscriptSidebar с виртуализацией и изоляцией через контекст
 
 'use client'

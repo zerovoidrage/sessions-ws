@@ -20,7 +20,6 @@ export interface ControlBarProps {
   onScreenShareToggle?: (enabled: boolean) => void
   onChatToggle?: () => void
   onLeave?: () => void
-  onEndForEveryone?: () => void
   microphoneEnabled?: boolean
   cameraEnabled?: boolean
   screenShareEnabled?: boolean
@@ -34,7 +33,6 @@ export function ControlBar({
   onScreenShareToggle,
   onChatToggle,
   onLeave,
-  onEndForEveryone,
   microphoneEnabled = false,
   cameraEnabled = false,
   screenShareEnabled = false,
@@ -61,9 +59,9 @@ export function ControlBar({
           className="flex items-center justify-center text-white-700 hover:text-white-900"
         >
           {cameraEnabled ? (
-            <VideoCamera size={24} weight="regular" />
+            <VideoCamera size={20} weight="regular" />
           ) : (
-            <VideoCameraSlash size={24} weight="regular" />
+            <VideoCameraSlash size={20} weight="regular" />
           )}
         </Button>
       )}
@@ -76,9 +74,9 @@ export function ControlBar({
           className="flex items-center justify-center text-white-700 hover:text-white-900"
         >
           {screenShareEnabled ? (
-            <Stop size={24} weight="regular" />
+            <Stop size={20} weight="regular" />
           ) : (
-            <MonitorArrowUp size={24} weight="regular" />
+            <MonitorArrowUp size={20} weight="regular" />
           )}
         </Button>
       )}
@@ -90,18 +88,7 @@ export function ControlBar({
           onClick={onChatToggle}
           className="flex items-center justify-center text-white-700 hover:text-white-900"
         >
-          <ChatCircle size={24} weight="regular" />
-        </Button>
-      )}
-
-      {onEndForEveryone && isCreator && (
-        <Button
-          variant="secondary"
-          size="md"
-          onClick={onEndForEveryone}
-          className="flex items-center justify-center text-white-900"
-        >
-          end session
+          <ChatCircle size={20} weight="regular" />
         </Button>
       )}
 
@@ -112,7 +99,7 @@ export function ControlBar({
           onClick={onLeave}
           className="flex items-center justify-center text-white-700 hover:text-white-900"
         >
-          <Power size={24} weight="regular" />
+          <Power size={20} weight="regular" />
         </Button>
       )}
     </div>

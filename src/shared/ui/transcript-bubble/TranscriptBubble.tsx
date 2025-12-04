@@ -32,19 +32,19 @@ export const TranscriptBubble = memo<TranscriptBubbleProps>(
 
     return (
       <div
-        className={`relative flex gap-6 ${shouldAnimate ? 'animate-slide-up-fade-in' : ''}`}
+        className={`relative flex gap-4 ${shouldAnimate ? 'animate-slide-up-fade-in' : ''}`}
       >
         <Avatar
           displayName={displayName}
           avatarUrl={participantData?.avatarUrl || null}
           noAvatarColor={participantData?.noAvatarColor || null}
-          size="md"
+          size="sm"
           className="flex-shrink-0"
         />
         <div className="flex-1 min-w-0">
           <div className="text-xs text-white-700 mb-1">{displayName}</div>
           <div
-            className={`text-sm ${
+            className={`text-xs ${
               bubble.isFinal ? 'text-white-900' : 'text-white-900 opacity-40'
             }`}
           >

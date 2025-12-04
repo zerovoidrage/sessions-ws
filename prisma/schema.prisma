@@ -109,6 +109,12 @@ model VideoSession {
   // Длительность сессии в секундах (рассчитывается при завершении)
   durationSeconds Int?
 
+  // AI metadata
+  aiTitle         String?   @db.VarChar(256)
+  aiCurrentTopic  String?   @db.VarChar(256)
+  aiTopicsJson    Json?     // хранит массив AiTopic
+  aiUpdatedAt     DateTime? @db.Timestamp(6)
+
   @@index([spaceId])
   @@index([createdByUserId])
   @@index([status])

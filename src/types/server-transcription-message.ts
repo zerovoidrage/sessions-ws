@@ -49,3 +49,4 @@ export type ServerTranscriptionMessage =
   | ErrorMessage
   | (Record<string, any> & { type?: string }) // Fallback для неизвестных форматов
 
+

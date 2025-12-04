@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils'
 export interface SessionCardProps {
   slug: string
   title?: string | null
+  aiTitle?: string | null
   createdAt: Date
   status: 'CREATED' | 'LIVE' | 'ENDED' | 'EXPIRED'
   onClick?: () => void
@@ -16,12 +17,14 @@ export interface SessionCardProps {
 export function SessionCard({
   slug,
   title,
+  aiTitle,
   createdAt,
   status,
   onClick,
   onDelete,
   className,
 }: SessionCardProps) {
+  const displayTitle = aiTitle || title || `Session ${slug.slice(0, 8)}`
   const formatDate = (date: Date) => {
     // Проверяем валидность даты
     if (!date || !(date instanceof Date) || isNaN(date.getTime())) {
@@ -51,7 +54,7 @@ export function SessionCard({
       >
         <div className="flex items-start justify-between mb-2">
           <h3 className="text-white-900 font-medium text-sm">
-            {title || `Session ${slug.slice(0, 8)}`}
+            {displayTitle}
           </h3>
           <div className="flex items-center gap-2">
             <span

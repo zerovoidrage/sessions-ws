@@ -1,32 +1,47 @@
+/**
+ * GET /api/sessions/[slug]
+ * 
+ * Returns session data including AI metadata.
+ */
+
 import { NextResponse } from 'next/server'
 import { getCurrentUser } from '@/modules/core/identity/application/getCurrentUser'
-import { deleteSessionEndpoint } from '@/modules/core/sessions/api/deleteSessionEndpoint'
+import { getSessionBySlug } from '@/modules/core/sessions/application/getSessionBySlug'
+import { getUserRoleInSpace } from '@/modules/core/spaces/infra/spaces.repository'
 
 interface Params {
   params: Promise<{ slug: string }>
 }
 
-// DELETE /api/sessions/[slug]
-export async function DELETE(req: Request, { params }: Params) {
+export async function GET(req: Request, { params }: Params) {
   try {
     const user = await getCurrentUser()
-    const { slug } = await params
-
-    await deleteSessionEndpoint(user, slug)
-
-    return NextResponse.json({ success: true })
-  } catch (error) {
-    if (error instanceof Error) {
-      if (error.message.includes('UNAUTHORIZED')) {
-        return new NextResponse('UNAUTHORIZED', { status: 401 })
-      }
-      if (error.message.includes('NOT_FOUND')) {
-        return new NextResponse('Session not found', { status: 404 })
-      }
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
-    console.error('Error deleting session:', error)
-    return new NextResponse('Failed to delete session', { status: 500 })
+
+    const { slug } = await params
+    if (!slug) {
+      return NextResponse.json({ error: 'Missing session slug' }, { status: 400 })
+    }
+
+    const session = await getSessionBySlug({ slug })
+    if (!session) {
+      return NextResponse.json({ error: 'Session not found' }, { status: 404 })
+    }
+
+    // Check user has access to the space
+    const role = await getUserRoleInSpace(user.id, session.spaceId)
+    if (!role) {
+      return NextResponse.json({ error: 'Access denied' }, { status: 403 })
+    }
+
+    return NextResponse.json(session)
+  } catch (error) {
+    console.error('[GET /api/sessions/[slug]] Error:', error)
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    )
   }
 }
-
-

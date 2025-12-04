@@ -33,6 +33,11 @@ export interface Session {
   rawTranscriptBlobUrl?: string | null
   rawTranscriptSizeBytes?: number | null
   rawTranscriptReadyAt?: Date | null
+  // AI metadata
+  aiTitle?: string | null
+  aiCurrentTopic?: string | null
+  aiTopicsJson?: unknown | null
+  aiUpdatedAt?: Date | null
 }
 
 export interface CreateSessionInput {

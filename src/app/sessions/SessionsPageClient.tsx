@@ -375,7 +375,7 @@ export function SessionsPageClient({
                 onClick={() => router.push(`/session/${session.slug}`)}
                 className="text-white-900 hover:opacity-60 transition-opacity cursor-pointer"
               >
-                Session {session.title || session.slug} <span className="text-white-600 lowercase">({session.status.toLowerCase()})</span>
+                Session {session.aiTitle || session.title || session.slug} <span className="text-white-600 lowercase">({session.status.toLowerCase()})</span>
               </button>
             ))}
           </div>

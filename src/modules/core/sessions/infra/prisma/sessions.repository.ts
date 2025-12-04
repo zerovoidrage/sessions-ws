@@ -32,6 +32,10 @@ export async function createSession(input: CreateSessionInput & { slug: string }
     rawTranscriptBlobUrl: session.rawTranscriptBlobUrl,
     rawTranscriptSizeBytes: session.rawTranscriptSizeBytes,
     rawTranscriptReadyAt: session.rawTranscriptReadyAt,
+    aiTitle: session.aiTitle,
+    aiCurrentTopic: session.aiCurrentTopic,
+    aiTopicsJson: session.aiTopicsJson,
+    aiUpdatedAt: session.aiUpdatedAt,
   }
 }
 
@@ -59,6 +63,10 @@ export async function getSessionBySlug(input: GetSessionBySlugInput): Promise<Se
     rawTranscriptBlobUrl: session.rawTranscriptBlobUrl,
     rawTranscriptSizeBytes: session.rawTranscriptSizeBytes,
     rawTranscriptReadyAt: session.rawTranscriptReadyAt,
+    aiTitle: session.aiTitle,
+    aiCurrentTopic: session.aiCurrentTopic,
+    aiTopicsJson: session.aiTopicsJson,
+    aiUpdatedAt: session.aiUpdatedAt,
   }
 }
 
@@ -90,6 +98,10 @@ export async function listSessionsBySpace(spaceId: string): Promise<Session[]> {
     rawTranscriptBlobUrl: s.rawTranscriptBlobUrl,
     rawTranscriptSizeBytes: s.rawTranscriptSizeBytes,
     rawTranscriptReadyAt: s.rawTranscriptReadyAt,
+    aiTitle: s.aiTitle,
+    aiCurrentTopic: s.aiCurrentTopic,
+    aiTopicsJson: s.aiTopicsJson,
+    aiUpdatedAt: s.aiUpdatedAt,
   }))
 }
 
@@ -117,6 +129,10 @@ export async function getSessionById(sessionId: string): Promise<Session | null>
     rawTranscriptBlobUrl: session.rawTranscriptBlobUrl,
     rawTranscriptSizeBytes: session.rawTranscriptSizeBytes,
     rawTranscriptReadyAt: session.rawTranscriptReadyAt,
+    aiTitle: session.aiTitle,
+    aiCurrentTopic: session.aiCurrentTopic,
+    aiTopicsJson: session.aiTopicsJson,
+    aiUpdatedAt: session.aiUpdatedAt,
   }
 }
 
@@ -172,6 +188,10 @@ export async function updateSessionStatus(
     rawTranscriptBlobUrl: session.rawTranscriptBlobUrl,
     rawTranscriptSizeBytes: session.rawTranscriptSizeBytes,
     rawTranscriptReadyAt: session.rawTranscriptReadyAt,
+    aiTitle: session.aiTitle,
+    aiCurrentTopic: session.aiCurrentTopic,
+    aiTopicsJson: session.aiTopicsJson,
+    aiUpdatedAt: session.aiUpdatedAt,
   }
 }
 
@@ -182,6 +202,59 @@ export async function updateSessionActivity(sessionId: string, lastActivityAt: D
       lastActivityAt,
     },
   })
+}
+
+/**
+ * Обновляет AI-метаданные сессии
+ */
+export async function updateSessionAiMetadata(params: {
+  sessionId: string
+  aiTitle?: string | null
+  aiCurrentTopic?: string | null
+  aiTopicsJson?: unknown | null
+}): Promise<Session> {
+  const { sessionId, aiTitle, aiCurrentTopic, aiTopicsJson } = params
+
+  console.log('[updateSessionAiMetadata] Updating AI metadata:', {
+    sessionId,
+    aiTitle,
+    aiCurrentTopic,
+    hasTopicsJson: !!aiTopicsJson,
+    topicsJsonType: Array.isArray(aiTopicsJson) ? `array[${(aiTopicsJson as any[]).length}]` : typeof aiTopicsJson,
+  })
+
+  const session = await db.videoSession.update({
+    where: { id: sessionId },
+    data: {
+      aiTitle: aiTitle ?? undefined,
+      aiCurrentTopic: aiCurrentTopic ?? undefined,
+      aiTopicsJson: aiTopicsJson ?? undefined,
+      aiUpdatedAt: new Date(),
+    },
+  })
+
+  return {
+    id: session.id,
+    slug: session.slug,
+    title: session.title,
+    createdByUserId: session.createdByUserId,
+    spaceId: session.spaceId,
+    status: session.status as Session['status'],
+    createdAt: session.createdAt,
+    startedAt: session.startedAt,
+    endedAt: session.endedAt,
+    lastActivityAt: session.lastActivityAt,
+    endReason: session.endReason as SessionEndReason | null,
+    endedByUserId: session.endedByUserId,
+    durationSeconds: session.durationSeconds,
+    rawTranscriptBlobUrl: session.rawTranscriptBlobUrl,
+    rawTranscriptSizeBytes: session.rawTranscriptSizeBytes,
+    rawTranscriptReadyAt: session.rawTranscriptReadyAt,
+    aiTitle: session.aiTitle,
+    aiCurrentTopic: session.aiCurrentTopic,
+    aiTopicsJson: session.aiTopicsJson,
+    aiUpdatedAt: session.aiUpdatedAt,
+  }
 }
 
 export async function findInactiveLiveSessions(inactiveMinutes: number): Promise<Session[]> {
@@ -214,6 +287,10 @@ export async function findInactiveLiveSessions(inactiveMinutes: number): Promise
     rawTranscriptBlobUrl: s.rawTranscriptBlobUrl,
     rawTranscriptSizeBytes: s.rawTranscriptSizeBytes,
     rawTranscriptReadyAt: s.rawTranscriptReadyAt,
+    aiTitle: s.aiTitle,
+    aiCurrentTopic: s.aiCurrentTopic,
+    aiTopicsJson: s.aiTopicsJson,
+    aiUpdatedAt: s.aiUpdatedAt,
   }))
 }
 
@@ -246,6 +323,10 @@ export async function findOldCreatedSessions(expireHours: number): Promise<Sessi
     rawTranscriptBlobUrl: s.rawTranscriptBlobUrl,
     rawTranscriptSizeBytes: s.rawTranscriptSizeBytes,
     rawTranscriptReadyAt: s.rawTranscriptReadyAt,
+    aiTitle: s.aiTitle,
+    aiCurrentTopic: s.aiCurrentTopic,
+    aiTopicsJson: s.aiTopicsJson,
+    aiUpdatedAt: s.aiUpdatedAt,
   }))
 }
 

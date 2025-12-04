@@ -158,3 +158,55 @@ Cursor **не имеет права**:
 - Когда становится сложно — не героически всё затачивать в один эндпоинт, а остановиться и предложить архитектурный апгрейд (Redis, очередь, отдельный воркер и т.д.) в виде плана
 
 Следуй этим правилам при любом промпте в этом проекте.
+
+
+
+держи такой ориентир по структуре ai-модуля на будущее.
+
+src/modules/intelligence/
+├── domain/
+│   ├── intelligence.types.ts
+│   ├── topic.types.ts
+│   ├── insight.types.ts
+│   ├── memory.types.ts
+│   └── summary.types.ts
+├── application/
+│   ├── realtime/
+│   │   ├── detectTopic.ts
+│   │   ├── detectFocusShift.ts
+│   │   ├── updateCallTitle.ts
+│   │   ├── buildLiveTopicMap.ts
+│   │   ├── extractRealtimeInsights.ts
+│   │   └── publishRealtimeEvents.ts
+│   ├── postcall/
+│   │   ├── generateSummary.ts
+│   │   ├── extractTasks.ts
+│   │   ├── computeImpactDifficulty.ts
+│   │   ├── linkTranscriptsToTasks.ts
+│   │   └── storeSessionInsights.ts
+│   ├── memory/
+│   │   ├── buildSpaceMemoryGraph.ts
+│   │   ├── searchMemory.ts
+│   │   ├── answerUserQuery.ts
+│   │   └── aggregateWeeklyDigest.ts
+│   └── index.ts
+├── infra/
+│   ├── openai/
+│   │   ├── openai.client.ts
+│   │   └── openai.prompt-templates.ts
+│   ├── prisma/
+│   │   ├── ai-insights.repository.ts
+│   │   ├── topics.repository.ts
+│   │   └── memory.repository.ts
+│   └── utils/
+│       ├── transcriptUtils.ts
+│       ├── topicUtils.ts
+│       └── memoryUtils.ts
+├── api/
+│   ├── realtime-insights.endpoint.ts
+│   ├── postcall-summary.endpoint.ts
+│   ├── space-memory-query.endpoint.ts
+│   └── ai-chat.endpoint.ts
+└── README.md
+
+

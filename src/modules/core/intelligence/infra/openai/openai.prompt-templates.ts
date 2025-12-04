@@ -5,6 +5,7 @@
  */
 
 import type { AiInsightsInput, AiMeetingInsights } from '../../domain/intelligence.types'
+import type { AiTopic } from '../../domain/topic.types'
 
 export function buildRealtimeInsightsPrompt(input: AiInsightsInput): {
   system: string
@@ -128,7 +129,7 @@ export function parseRealtimeInsightsResponse(
     }
 
     // Validate and normalize the response
-    const topics = Array.isArray(parsed.topics)
+    const topics: AiTopic[] = Array.isArray(parsed.topics)
       ? parsed.topics.map((t: any, index: number) => {
           const label = String(t.label ?? '')
           // Use provided ID if valid, otherwise generate stable ID from label

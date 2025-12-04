@@ -3,8 +3,6 @@ import type { NextRequest } from 'next/server'
 import { getToken } from 'next-auth/jwt'
 
 export async function middleware(request: NextRequest) {
-  const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET })
-
   // Публичные пути
   const publicPaths = ['/auth', '/api/auth', '/']
   const isPublicPath = publicPaths.some((path) => {
@@ -36,6 +34,17 @@ export async function middleware(request: NextRequest) {
 
   if (isPublicPath || isPublicStaticFile || isSessionPath || isGuestJoinApi || isGuestTokenApi || isParticipantApi || isTranscriptionUsageApi) {
     return NextResponse.next()
+  }
+
+  // Пытаемся получить токен, но не падаем если NEXTAUTH_SECRET не установлен
+  let token = null
+  try {
+    if (process.env.NEXTAUTH_SECRET) {
+      token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET })
+    }
+  } catch (error) {
+    console.error('[Middleware] Error getting token:', error)
+    // Если ошибка при получении токена, считаем что пользователь не авторизован
   }
 
   // Если не авторизован - редирект на главную (лендинг)

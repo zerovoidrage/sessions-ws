@@ -32,10 +32,12 @@ export function CurrentTopicBubble({ topic, topics }: CurrentTopicBubbleProps) {
   )
 
   const hasHistory = historyTopics.length > 0
+  // Показываем стрелку и возможность развернуть, если есть хотя бы одна тема
+  const canExpand = topics.length > 0
 
   // Точный расчет ширины: только реальный контент без дублирования padding
   const expandedWidth = useMemo(() => {
-    if (!hasHistory) return 340
+    if (!canExpand) return 340
     
     // Реальные размеры:
     // - Карточка: 240px (w-60)
@@ -54,7 +56,7 @@ export function CurrentTopicBubble({ topic, topics }: CurrentTopicBubbleProps) {
     
     // Общая ширина = базовая + контент истории
     return baseWidth + historyContentWidth
-  }, [hasHistory, historyTopics.length])
+  }, [canExpand, historyTopics.length])
 
   useEffect(() => {
     if (topic) {
@@ -70,7 +72,7 @@ export function CurrentTopicBubble({ topic, topics }: CurrentTopicBubbleProps) {
   if (isGeneric && topic.length < 10) return null
 
   const handleToggle = () => {
-    if (!hasHistory) return
+    if (!canExpand) return
     setIsExpanded(prev => !prev)
   }
 
@@ -79,7 +81,7 @@ export function CurrentTopicBubble({ topic, topics }: CurrentTopicBubbleProps) {
       <motion.div
         // Анимируем только ширину и scale — без borderRadius
         animate={{
-          width: isExpanded && hasHistory ? expandedWidth : 340,
+          width: isExpanded && canExpand ? expandedWidth : 340,
           scale: isExpanded ? 1.01 : 1,
         }}
         transition={{
@@ -88,14 +90,14 @@ export function CurrentTopicBubble({ topic, topics }: CurrentTopicBubbleProps) {
           damping: 40,
           mass: 0.55,
         }}
-        onClick={isExpanded && hasHistory ? handleToggle : undefined}
+        onClick={isExpanded && canExpand ? handleToggle : undefined}
         className={cn(
           'relative flex flex-col justify-end bg-onsurface-800 hover:bg-onsurface-700 px-2 py-1 pr-4',
           'shadow-[0_18px_40px_rgba(0,0,0,0.65)]',
           'backdrop-blur-2xl',
           'overflow-hidden rounded-[24px]',
           'transition-colors duration-200',
-          isExpanded && hasHistory ? 'cursor-pointer' : ''
+          isExpanded && canExpand ? 'cursor-pointer' : ''
         )}
       >
         {/* История — наверху, растёт вверх */}
@@ -106,15 +108,16 @@ export function CurrentTopicBubble({ topic, topics }: CurrentTopicBubbleProps) {
             'ease-[cubic-bezier(0.22,1,0.36,1)]',
             // Скрываем скроллбар визуально, но оставляем техническую возможность скролла
             'scrollbar-hide',
-            isExpanded && hasHistory
+            isExpanded && canExpand
               ? 'max-h-48 opacity-100 mb-4 mt-1 px-0 pb-2'
               : 'max-h-0 opacity-0 mb-0 px-0 pb-0 pointer-events-none'
           )}
         >
           <AnimatePresence>
-            {isExpanded && hasHistory && (
+            {isExpanded && canExpand && (
               <div className="flex gap-2 w-fit">
-                {historyTopics.map((historyTopic, index) => {
+                {historyTopics.length > 0 ? (
+                  historyTopics.map((historyTopic, index) => {
                   const formatTime = (seconds: number | null): string => {
                     if (!seconds) return '--:--'
                     const mins = Math.floor(seconds / 60)
@@ -157,7 +160,53 @@ export function CurrentTopicBubble({ topic, topics }: CurrentTopicBubbleProps) {
                       </div>
                     </motion.div>
                   )
-                })}
+                  })
+                ) : (
+                  // Если истории нет, показываем текущую тему как карточку
+                  topics.length > 0 && (() => {
+                    const currentTopic = topics[topics.length - 1]
+                    const formatTime = (seconds: number | null): string => {
+                      if (!seconds) return '--:--'
+                      const mins = Math.floor(seconds / 60)
+                      const secs = Math.floor(seconds % 60)
+                      return `${mins}:${secs.toString().padStart(2, '0')}`
+                    }
+                    return (
+                      <motion.div
+                        key={currentTopic.id}
+                        initial={{ 
+                          opacity: 0, 
+                          scale: 0.6,
+                          y: 20,
+                        }}
+                        animate={{ 
+                          opacity: 1, 
+                          scale: 1,
+                          y: 0,
+                        }}
+                        exit={{ 
+                          opacity: 0, 
+                          scale: 0.6,
+                          y: 10,
+                        }}
+                        transition={{
+                          type: 'spring',
+                          stiffness: 400,
+                          damping: 25,
+                          mass: 0.5,
+                        }}
+                        className="flex-shrink-0 w-60 h-40 rounded-lg bg-onsurface-700 p-3 flex flex-col justify-between"
+                      >
+                        <div className="text-xs text-white-600">
+                          {formatTime(currentTopic.startedAtSec)}
+                        </div>
+                        <div className="text-xs text-white-900 line-clamp-2 leading-tight">
+                          {currentTopic.label}
+                        </div>
+                      </motion.div>
+                    )
+                  })()
+                )}
               </div>
             )}
           </AnimatePresence>
@@ -168,7 +217,7 @@ export function CurrentTopicBubble({ topic, topics }: CurrentTopicBubbleProps) {
           type="button"
           className={cn(
             'relative z-[1] flex h-10 items-center justify-between gap-4',
-            hasHistory ? 'cursor-pointer' : 'cursor-default'
+            canExpand ? 'cursor-pointer' : 'cursor-default'
           )}
           onClick={(e) => {
             e.stopPropagation() // Предотвращаем двойной toggle
@@ -192,7 +241,7 @@ export function CurrentTopicBubble({ topic, topics }: CurrentTopicBubbleProps) {
             </span>
           </div>
 
-          {hasHistory && (
+          {canExpand && (
             <motion.div
               animate={{ rotate: isExpanded ? 180 : 0 }}
               transition={{

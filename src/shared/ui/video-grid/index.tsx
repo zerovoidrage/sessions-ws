@@ -236,7 +236,7 @@ function VideoGridComponent({ localParticipant, remoteParticipants, className }:
 
     return (
       <div className={cn('w-full h-full flex items-center justify-center', className)}>
-        <div className="aspect-[3/3] w-[60vh] max-w-[300px] max-h-[600px]">
+        <div className="aspect-video w-[85vw] max-w-[1200px] max-h-[85vh]">
           <VideoTile
             track={videoTrack}
             participantName={participant.name || participant.identity}

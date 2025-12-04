@@ -20,9 +20,9 @@ interface ParticipantData {
 
 /**
  * Ограничение количества отображаемых транскриптов.
- * Показываем только последние 6 сообщений, старые автоматически скрываются.
+ * Показываем только последние 4 сообщения, старые автоматически скрываются.
  */
-const MAX_VISIBLE_MESSAGES = 6
+const MAX_VISIBLE_MESSAGES = 4
 
 export function TranscriptSidebar({ sessionSlug }: TranscriptSidebarProps) {
   const { transcripts } = useTranscriptContext()
@@ -34,12 +34,12 @@ export function TranscriptSidebar({ sessionSlug }: TranscriptSidebarProps) {
   const [participantsData, setParticipantsData] = useState<Map<string, ParticipantData>>(new Map())
   const loadedParticipantsRef = useRef<Set<string>>(new Set())
 
-  // Ограничиваем до последних 6 сообщений
+  // Ограничиваем до последних 4 сообщений
   const visibleTranscripts = useMemo(() => {
     if (transcripts.length === 0) {
       return []
     }
-    // Показываем только последние 6 сообщений
+    // Показываем только последние 4 сообщения
     return transcripts.slice(-MAX_VISIBLE_MESSAGES)
   }, [transcripts])
 

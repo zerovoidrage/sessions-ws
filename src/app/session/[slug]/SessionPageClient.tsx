@@ -19,7 +19,6 @@ import { cn } from '@/lib/utils'
 import { useSessionAiEngine } from '@/hooks/useSessionAiEngine'
 import type { AiSessionInsights } from '@/modules/core/intelligence/domain/intelligence.types'
 import { CurrentTopicBubble } from '@/shared/ui/session-ai/current-topic-bubble/CurrentTopicBubble'
-import { TopicToastStack } from '@/shared/ui/session-ai/topic-toast-stack/TopicToastStack'
 
 interface TokenResponse {
   token: string
@@ -595,15 +594,15 @@ function SessionContentInner({
   return (
     <div className="relative flex flex-col h-full">
       {/* AI Title Header - Top Left */}
-      <div className="absolute top-4 left-1 z-50 pointer-events-none">
-        <div className="flex flex-col gap-1 bg-black/60 backdrop-blur-sm px-3 py-2 rounded-lg">
+      <div className="absolute top-3 left-1 z-50 pointer-events-none">
+        <div className="flex flex-col gap-1 bg-black/60 backdrop-blur-sm px-2 py-0.5 rounded-lg">
           <h1 className="text-sm text-white-600">{displayTitle}</h1>
         </div>
       </div>
 
       {/* End Session Button - Top Right */}
       {isCreator && (
-        <div className="absolute top-4 right-4 z-50">
+        <div className="absolute top-2.5 right-4 z-50">
           <button
             onClick={handleEndForEveryone}
             className="text-sm text-white-600 hover:text-white-900 transition-colors cursor-pointer"
@@ -613,11 +612,8 @@ function SessionContentInner({
         </div>
       )}
 
-      {/* Current Topic Bubble - Top Center */}
-      <CurrentTopicBubble topic={currentTopicLabel} />
-
-      {/* Topic Toast Stack - Bottom Left */}
-      <TopicToastStack topics={topics} />
+      {/* Current Topic Bubble - Bottom Left (expandable with history) */}
+      <CurrentTopicBubble topic={currentTopicLabel} topics={topics} />
 
       <div className="flex-1 min-w-0 relative">
         <VideoGrid 
@@ -625,7 +621,7 @@ function SessionContentInner({
           remoteParticipants={remoteParticipants}
         />
       </div>
-      <div className="p-4 pb-8">
+      <div className="p-4 pb-4">
         <ControlBar
           onMicrophoneToggle={handleMicrophoneToggle}
           onCameraToggle={handleCameraToggle}

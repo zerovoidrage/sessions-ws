@@ -107,7 +107,10 @@ function VideoTileComponent({
           autoPlay
           playsInline
           muted={isLocal}
-          className="w-full h-full object-cover object-center"
+          className={cn(
+            "w-full h-full object-cover object-center",
+            isLocal && "scale-x-[-1]" // Зеркалируем локальное видео, как в Google Meet
+          )}
         />
       ) : (
         // Не показываем placeholder - только пустой фон

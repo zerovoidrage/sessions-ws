@@ -42,9 +42,9 @@ export const TranscriptBubble = memo<TranscriptBubbleProps>(
           className="flex-shrink-0"
         />
         <div className="flex-1 min-w-0">
-          <div className="text-xs text-white-700 mb-1">{displayName}</div>
+          <div className="text-xs text-[#ffffff] opacity-50 mb-1">{displayName}</div>
           <div
-            className={`text-xs ${
+            className={`text-sm ${
               bubble.isFinal ? 'text-white-900' : 'text-white-900 opacity-40'
             }`}
           >

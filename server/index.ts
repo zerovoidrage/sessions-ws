@@ -1,6 +1,5 @@
 import http from 'http'
 import { WebSocketServer } from 'ws'
-import url from 'url'
 import { getMetrics } from './metrics.js'
 import { getLatencySnapshot } from './realtime-metrics.js'
 import { getQueueMetrics, flushAllPending, stopFlushTimer } from './transcript-batch-queue.js'
@@ -29,8 +28,8 @@ console.log(`[WS-SERVER] Port configuration:`, {
 
 // Создаём HTTP server с ОЧЕНЬ явной маршрутизацией
 const server = http.createServer(async (req, res) => {
-  const parsedUrl = url.parse(req.url || '', true)
-  const pathname = parsedUrl.pathname || '/'
+  const url = new URL(req.url || '/', `http://${req.headers.host || 'dummy'}`)
+  const pathname = url.pathname || '/'
 
   // Логируем все HTTP запросы
   console.log(`[WS-SERVER] 🔵 HTTP REQUEST: ${req.method} ${req.url}`, {
@@ -381,8 +380,8 @@ if (SERVER_MODE !== 'rtmp') {
 
   egressWss.on('connection', (ws, req: http.IncomingMessage) => {
     // Парсим sessionId и trackId из URL
-    const parsedUrl = url.parse(req.url || '', true)
-    const pathParts = (parsedUrl.pathname || '').split('/').filter(Boolean)
+    const url = new URL(req.url || '/', `http://${req.headers.host || 'dummy'}`)
+    const pathParts = (url.pathname || '').split('/').filter(Boolean)
     // pathParts: ['egress', 'audio', sessionId, trackId]
 
     if (pathParts.length < 4) {
@@ -415,8 +414,8 @@ if (SERVER_MODE !== 'rtmp') {
   // Явно и очень аккуратно обрабатываем upgrade
   // ВАЖНО: этот обработчик должен быть ОДИН на весь сервер
   server.on('upgrade', (req, socket, head) => {
-    const parsedUrl = url.parse(req.url || '', true)
-    const pathname = parsedUrl.pathname || ''
+    const url = new URL(req.url || '/', `http://${req.headers.host || 'dummy'}`)
+    const pathname = url.pathname || ''
 
     console.log(`[WS-SERVER] 🔄 Upgrade request received: ${pathname}`, {
       method: req.method,
@@ -450,8 +449,8 @@ if (SERVER_MODE !== 'rtmp') {
       }
 
       // Извлекаем токен и sessionSlug из query параметров
-      const token = parsedUrl.query?.token as string | undefined
-      const sessionSlug = parsedUrl.query?.sessionSlug as string | undefined
+      const token = url.searchParams.get('token') || undefined
+      const sessionSlug = url.searchParams.get('sessionSlug') || undefined
 
       // Валидация токена/сессии ДО handleUpgrade (минимум surface area)
       const authResult = validateTokenAndSession(token, sessionSlug)
